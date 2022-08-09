@@ -1,7 +1,5 @@
 # yaaf-common-postgresql
 
-[![Build](https://github.com/mottyc/yaaf-common-postgresql/actions/workflows/build.yml/badge.svg)](https://github.com/mottyc/yaaf-common-postgresql/actions/workflows/build.yml)
-
 PostgreSQL implementation of `yaaf-common` IDatabase interface
 
 ## About
