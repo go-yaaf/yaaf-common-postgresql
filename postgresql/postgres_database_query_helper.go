@@ -9,7 +9,7 @@ import (
 	"github.com/lib/pq"
 	"strings"
 
-	"github.com/mottyc/yaaf-common/database"
+	"github.com/go-yaaf/yaaf-common/database"
 )
 
 // region Query helper Methods -----------------------------------------------------------------------------------------

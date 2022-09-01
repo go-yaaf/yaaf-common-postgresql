@@ -10,6 +10,6 @@ This library is built around the [Pure Go Postgres driver for database/sql](http
 #### Adding dependency
 
 ```bash
-$ go get -v -t github.com/mottyc/yaaf-common-postgresql ./...
+$ go get -v -t github.com/go-yaaf/yaaf-common-postgresql ./...
 ```
 

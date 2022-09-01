@@ -6,8 +6,8 @@ package postgresql
 
 import (
 	"fmt"
-	"github.com/mottyc/yaaf-common-docker/docker"
-	"github.com/mottyc/yaaf-common/database"
+	"github.com/go-yaaf/yaaf-common-docker/docker"
+	"github.com/go-yaaf/yaaf-common/database"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"testing"

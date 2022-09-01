@@ -5,7 +5,7 @@
 package postgresql
 
 import (
-	. "github.com/mottyc/yaaf-common/entity"
+	. "github.com/go-yaaf/yaaf-common/entity"
 )
 
 // region Heroes Test Model --------------------------------------------------------------------------------------------

@@ -15,9 +15,9 @@ import (
 
 	"github.com/lib/pq"
 
-	"github.com/mottyc/yaaf-common/database"
-	. "github.com/mottyc/yaaf-common/entity"
-	"github.com/mottyc/yaaf-common/logger"
+	"github.com/go-yaaf/yaaf-common/database"
+	. "github.com/go-yaaf/yaaf-common/entity"
+	"github.com/go-yaaf/yaaf-common/logger"
 )
 
 // region Database store definitions -----------------------------------------------------------------------------------

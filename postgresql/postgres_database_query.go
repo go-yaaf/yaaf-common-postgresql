@@ -8,11 +8,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/mottyc/yaaf-common/logger"
+	"github.com/go-yaaf/yaaf-common/logger"
 	"strings"
 
-	"github.com/mottyc/yaaf-common/database"
-	. "github.com/mottyc/yaaf-common/entity"
+	"github.com/go-yaaf/yaaf-common/database"
+	. "github.com/go-yaaf/yaaf-common/entity"
 )
 
 // region postgres query internal structure ----------------------------------------------------------------------------
