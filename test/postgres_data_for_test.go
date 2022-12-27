@@ -1,8 +1,7 @@
 // Copyright 2022. Motty Cohen
 //
 // Data model and testing data
-//
-package postgresql
+package test
 
 import (
 	. "github.com/go-yaaf/yaaf-common/entity"
