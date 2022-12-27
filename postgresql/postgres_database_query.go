@@ -2,23 +2,23 @@
 //
 // Postgresql database implementation of IQuery
 //
+
 package postgresql
 
 import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/go-yaaf/yaaf-common/logger"
 	"strings"
 
 	"github.com/go-yaaf/yaaf-common/database"
 	. "github.com/go-yaaf/yaaf-common/entity"
+	"github.com/go-yaaf/yaaf-common/logger"
 )
 
 // region postgres query internal structure ----------------------------------------------------------------------------
 
 type postgresDatabaseQuery struct {
-	//db         database.IDatabase
 	db         *PostgresDatabase
 	factory    EntityFactory
 	allFilters [][]database.QueryFilter

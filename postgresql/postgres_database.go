@@ -2,6 +2,7 @@
 //
 // Postgresql object database implementations of IDatabase interface
 //
+
 package postgresql
 
 import (
@@ -21,6 +22,7 @@ import (
 )
 
 // region Database store definitions -----------------------------------------------------------------------------------
+
 type PostgresDatabase struct {
 	pgDb *sql.DB
 }
@@ -43,11 +45,10 @@ const (
 
 // region Factory method for Database store ----------------------------------------------------------------------------
 
-/**
- * Factory method for DB store
- * Parameter URI represents the database connection string in the format of:
- * postgresql://user:password@host:port/database_name?application_name
- */
+// NewPostgresStore factory method for database
+//
+// param: URI - represents the database connection string in the format of: postgresql://user:password@host:port/database_name?application_name
+// return: IDatabase instance, error
 func NewPostgresStore(URI string) (dbs database.IDatabase, err error) {
 
 	var (
@@ -74,10 +75,10 @@ func NewPostgresStore(URI string) (dbs database.IDatabase, err error) {
 	return
 }
 
-/**
- * Convert URI style connection to DB connection string in the format of:
- * postgres://user:password@host:port/database_name
- */
+// convertConnectionString Convert URI style connection to DB connection string in the format of:
+// postgres://user:password@host:port/database_name
+// param: dbUri - The database URI
+// return: driver name, connection string, error
 func convertConnectionString(dbUri string) (driver string, connStr string, err error) {
 	uri, err := url.Parse(strings.TrimSpace(dbUri))
 	if err != nil {
@@ -113,11 +114,10 @@ func convertConnectionString(dbUri string) (driver string, connStr string, err e
 	return driver, connStr, nil
 }
 
-/**
- * Test database connectivity
- * @param retries - how many retries are required (max 10)
- * @param interval - time interval (in seconds) between retries (max 60)
- */
+// Ping Test database connectivity
+//
+// param: retries - how many retries are required (max 10)
+// param: intervalInSeconds - time interval (in seconds) between retries (max 60)
 func (dbs *PostgresDatabase) Ping(retries uint, intervalInSeconds uint) error {
 
 	if retries > 10 {
@@ -144,9 +144,7 @@ func (dbs *PostgresDatabase) Ping(retries uint, intervalInSeconds uint) error {
 	return fmt.Errorf("could not establish database connection")
 }
 
-/**
- * Close DB and free resources
- */
+// Close DB and free resources
 func (dbs *PostgresDatabase) Close() {
 	_ = dbs.pgDb.Close()
 }
@@ -185,14 +183,12 @@ func tableName(table string, keys ...string) (tblName string) {
 
 // region Database basic CRUD methods ----------------------------------------------------------------------------------
 
-/**
- * Get a single entity by ID
- *
- * @param factory Entity factory
- * @param entityID Entity id
- * @param keys Sharding key(s) (for sharded entities and multi-tenant support)
- * @return Entity, Error
- */
+// Get a single entity by ID
+//
+// param: factory - Entity factory
+// param: entityID - Entity id
+// param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
+// return: Entity, error
 func (dbs *PostgresDatabase) Get(factory EntityFactory, entityID string, keys ...string) (result Entity, err error) {
 
 	var (
@@ -240,14 +236,12 @@ func (dbs *PostgresDatabase) Get(factory EntityFactory, entityID string, keys ..
 	return
 }
 
-/**
- * Check if entity exists by ID
- *
- * @param factory Entity factory
- * @param entityID Entity id
- * @param keys Sharding key(s) (for sharded entities and multi-tenant support)
- * @return bool, Error
- */
+// Exists Check if entity exists by ID
+//
+// param: factory - Entity factory
+// param: entityID - Entity id
+// param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
+// return: bool, error
 func (dbs *PostgresDatabase) Exists(factory EntityFactory, entityID string, keys ...string) (result bool, err error) {
 
 	SQL := fmt.Sprintf(`SELECT id FROM "%s" WHERE id = $1`, tableName(factory().TABLE(), keys...))
@@ -262,14 +256,12 @@ func (dbs *PostgresDatabase) Exists(factory EntityFactory, entityID string, keys
 	}
 }
 
-/**
- * Get list of entities by IDs
- *
- * @param factory Entity factory
- * @param entityIDs List of Entity IDsd
- * @param keys Sharding key(s) (for sharded entities and multi-tenant support)
- * @return []Entity, Error
- */
+// List Get list of entities by IDs
+//
+// param: factory - Entity factory
+// param: entityIDs - List of Entity IDs
+// param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
+// return: []Entity, error
 func (dbs *PostgresDatabase) List(factory EntityFactory, entityIDs []string, keys ...string) (list []Entity, err error) {
 
 	var (
@@ -306,12 +298,10 @@ func (dbs *PostgresDatabase) List(factory EntityFactory, entityIDs []string, key
 	return
 }
 
-/**
- * Insert new entity
- *
- * @param entity The entity to insert
- * @return Inserted Entity, Error
- */
+// Insert new entity
+//
+// param: entity - The entity to insert
+// return: Inserted Entity, error
 func (dbs *PostgresDatabase) Insert(entity Entity) (added Entity, err error) {
 	var (
 		result sql.Result
@@ -343,12 +333,10 @@ func (dbs *PostgresDatabase) Insert(entity Entity) (added Entity, err error) {
 	return
 }
 
-/**
- * Update existing entity
- *
- * @param entity The entity to update
- * @return Updated Entity, Error
- */
+// Update existing entity
+//
+// param: entity - The entity to update
+// return: Updated Entity, error
 func (dbs *PostgresDatabase) Update(entity Entity) (updated Entity, err error) {
 
 	var (
@@ -381,12 +369,10 @@ func (dbs *PostgresDatabase) Update(entity Entity) (updated Entity, err error) {
 	return
 }
 
-/**
- * Update entity or insert it if it does not exist
- *
- * @param entity The entity to update
- * @return Updated Entity, Error
- */
+// Upsert Update entity or insert it if it does not exist
+//
+// param: entity - The entity to update
+// return: Updated Entity, error
 func (dbs *PostgresDatabase) Upsert(entity Entity) (updated Entity, err error) {
 	var (
 		result sql.Result
@@ -418,14 +404,12 @@ func (dbs *PostgresDatabase) Upsert(entity Entity) (updated Entity, err error) {
 	return
 }
 
-/**
- * Delete entity
- *
- * @param factory Entity factory
- * @param entityID Entity ID to delete
- * @param keys Sharding key(s) (for sharded entities and multi-tenant support)
- * @return Error
- */
+// Delete entity
+//
+// param: factory - Entity factory
+// param: entityID - Entity ID to delete
+// param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
+// return: error
 func (dbs *PostgresDatabase) Delete(factory EntityFactory, entityID string, keys ...string) (err error) {
 	var (
 		affected int64
@@ -462,12 +446,10 @@ func (dbs *PostgresDatabase) Delete(factory EntityFactory, entityID string, keys
 
 // region Database bulk CRUD methods -----------------------------------------------------------------------------------
 
-/**
- * Insert multiple entities to database in a single transaction (all must be of the same type)
- *
- * @param entities List of entities to insert
- * @return Number of inserted entities, Error
- */
+// BulkInsert Insert multiple entities to database in a single transaction (all must be of the same type)
+//
+// param: entities - List of entities to insert
+// return: Number of inserted entities, error
 func (dbs *PostgresDatabase) BulkInsert(entities []Entity) (affected int64, err error) {
 
 	if len(entities) == 0 {
@@ -509,12 +491,10 @@ func (dbs *PostgresDatabase) BulkInsert(entities []Entity) (affected int64, err 
 	return
 }
 
-/**
- * Update multiple entities to database in a single transaction (all must be of the same type)
- *
- * @param entities List of entities to update
- * @return Number of updated entities, Error
- */
+// BulkUpdate Update multiple entities to database in a single transaction (all must be of the same type)
+//
+// param: entities - List of entities to update
+// return: Number of updated entities, error
 func (dbs *PostgresDatabase) BulkUpdate(entities []Entity) (affected int64, err error) {
 
 	if len(entities) == 0 {
@@ -555,12 +535,10 @@ func (dbs *PostgresDatabase) BulkUpdate(entities []Entity) (affected int64, err 
 	return
 }
 
-/**
- * Upsert multiple entities to database in a single transaction (all must be of the same type)
- *
- * @param entities List of entities to upsert
- * @return Number of updated entities, Error
- */
+// BulkUpsert Upsert multiple entities to database in a single transaction (all must be of the same type)
+//
+// param: entities - List of entities to upsert
+// return: Number of updated entities, error
 func (dbs *PostgresDatabase) BulkUpsert(entities []Entity) (affected int64, err error) {
 
 	if len(entities) == 0 {
@@ -601,14 +579,12 @@ func (dbs *PostgresDatabase) BulkUpsert(entities []Entity) (affected int64, err 
 	return
 }
 
-/**
- * Delete multiple entities from the database in a single transaction (all must be of the same type)
- *
- * @param factory Entity factory
- * @param entityIDs List of entities IDs to delete
- * @param keys Sharding key(s) (for sharded entities and multi-tenant support)
- * @return Number of deleted entities, Error
- */
+// BulkDelete Delete multiple entities from the database in a single transaction (all must be of the same type)
+//
+// param: factory - Entity factory
+// param: entityIDs - List of entities IDs to delete
+// param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
+// return: Number of deleted entities, error
 func (dbs *PostgresDatabase) BulkDelete(factory EntityFactory, entityIDs []string, keys ...string) (affected int64, err error) {
 	var (
 		result sql.Result
@@ -651,16 +627,14 @@ func (dbs *PostgresDatabase) BulkDelete(factory EntityFactory, entityIDs []strin
 
 // region Database set field methods -----------------------------------------------------------------------------------
 
-/**
- * Update a single field of the document in a single transaction
- *
- * @param factory Entity factory
- * @param entityID The entity ID to update the field
- * @param field The field name to update
- * @param value The field value to update
- * @param keys Sharding key(s) (for sharded entities and multi-tenant support)
- * @return Error
- */
+// SetField Update a single field of the document in a single transaction
+//
+// param: factory - Entity factory
+// param: entityID - The entity ID to update the field
+// param: field - The field name to update
+// param: value - The field value to update
+// param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
+// return: error
 func (dbs *PostgresDatabase) SetField(factory EntityFactory, entityID string, field string, value any, keys ...string) (err error) {
 
 	fields := make(map[string]any)
@@ -668,15 +642,13 @@ func (dbs *PostgresDatabase) SetField(factory EntityFactory, entityID string, fi
 	return dbs.SetFields(factory, entityID, fields, keys...)
 }
 
-/**
- * Update some fields of the document in a single transaction
- *
- * @param factory Entity factory
- * @param entityID The entity ID to update the field
- * @param fields A map of field-value pairs to update
- * @param keys Sharding key(s) (for sharded entities and multi-tenant support)
- * @return Error
- */
+// SetFields Update some fields of the document in a single transaction
+//
+// param: factory - Entity factory
+// param: entityID - The entity ID to update the field
+// param: fields - A map of field-value pairs to update
+// param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
+// return: error
 func (dbs *PostgresDatabase) SetFields(factory EntityFactory, entityID string, fields map[string]any, keys ...string) (err error) {
 
 	entity := factory()
@@ -714,9 +686,10 @@ func (dbs *PostgresDatabase) SetFields(factory EntityFactory, entityID string, f
 
 // region Database Query methods ---------------------------------------------------------------------------------------
 
-/**
- * Helper method to construct query
- */
+// Query Helper method to construct query
+//
+// param: factory - Entity factory
+// return: Query object
 func (dbs *PostgresDatabase) Query(factory EntityFactory) database.IQuery {
 	return &postgresDatabaseQuery{
 		db:      dbs,
@@ -728,10 +701,10 @@ func (dbs *PostgresDatabase) Query(factory EntityFactory) database.IQuery {
 
 // region Database DDL methods -----------------------------------------------------------------------------------------
 
-/**
- * Execute DDL - create table and indexes
- * The ddl parameter is a map of strings (table names) to array of strings (list of fields to index)
- */
+// ExecuteDDL create table and indexes
+//
+// param: ddl - The ddl parameter is a map of strings (table names) to array of strings (list of fields to index)
+// return: error
 func (dbs *PostgresDatabase) ExecuteDDL(ddl map[string][]string) (err error) {
 	for table, fields := range ddl {
 
@@ -751,9 +724,11 @@ func (dbs *PostgresDatabase) ExecuteDDL(ddl map[string][]string) (err error) {
 	return nil
 }
 
-/**
- * Execute SQL command
- */
+// ExecuteSQL Execute SQL command
+//
+// param: sql - The SQL command to execute
+// param: args - Statement arguments
+// return: Number of affected records, error
 func (dbs *PostgresDatabase) ExecuteSQL(sql string, args ...any) (affected int64, err error) {
 	if result, er := dbs.pgDb.Exec(sql); er != nil {
 		logger.Debug("%s error: %s", sql, err.Error())
@@ -767,9 +742,10 @@ func (dbs *PostgresDatabase) ExecuteSQL(sql string, args ...any) (affected int64
 	}
 }
 
-/**
- * Drop table and indexes
- */
+// DropTable Drop table and indexes
+//
+// param: table - Table name to drop
+// return: error
 func (dbs *PostgresDatabase) DropTable(table string) (err error) {
 	SQL := fmt.Sprintf(ddlDropTable, table)
 	if _, err = dbs.pgDb.Exec(SQL); err != nil {
@@ -778,9 +754,10 @@ func (dbs *PostgresDatabase) DropTable(table string) (err error) {
 	return
 }
 
-/**
- * Fast delete table content (truncate)
- */
+// PurgeTable Fast delete table content (truncate)
+//
+// param: table - Table name to purge
+// return: error
 func (dbs *PostgresDatabase) PurgeTable(table string) (err error) {
 	SQL := fmt.Sprintf(ddlPurgeTable, table)
 	if _, err = dbs.pgDb.Exec(SQL); err != nil {
@@ -793,14 +770,16 @@ func (dbs *PostgresDatabase) PurgeTable(table string) (err error) {
 
 // region PRIVATE SECTION ----------------------------------------------------------------------------------------------
 
-/**
- * Publish entity change to the message bus:
- *   Topic: 		ENTITY_<accountId> or ENTITY_system
- *   Payload:		The entity
- *   OpCode:		1=Add, 2=Update, 3=Delete
- *   Addressee:		The entity table name
- *   SessionId:		The shard key
- */
+// publishChange Publish entity change to the message bus:
+//
+//	Topic: 		ENTITY_<accountId> or ENTITY_system
+//	Payload:		The entity
+//	OpCode:		1=Add, 2=Update, 3=Delete
+//	Addressee:		The entity table name
+//	SessionId:		The shard key
+//
+// param: action - The action on the entity
+// param: entity - The changed entity
 func (dbs *PostgresDatabase) publishChange(action EntityAction, entity Entity) {
 
 	// TODO: create pub/sub message and publish it on the injected message bug
