@@ -11,6 +11,7 @@ import (
 	"github.com/go-yaaf/yaaf-common/database"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
+	"os"
 	"testing"
 	"time"
 )
@@ -31,6 +32,9 @@ type PostgresqlTestSuite struct {
 }
 
 func TestDbTestSuite(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping testing in CI environment")
+	}
 	suite.Run(t, new(PostgresqlTestSuite))
 }
 
