@@ -1,5 +1,3 @@
-// Copyright 2022. Motty Cohen
-//
 // Postgresql database implementation of IQuery
 //
 
@@ -34,9 +32,7 @@ type postgresDatabaseQuery struct {
 
 // region Query Construction Methods -----------------------------------------------------------------------------------
 
-/**
- * Add callback to apply on each result entity in the query
- */
+// Apply adds a callback to apply on each result entity in the query
 func (s *postgresDatabaseQuery) Apply(cb func(in Entity) Entity) database.IQuery {
 	if cb != nil {
 		s.callbacks = append(s.callbacks, cb)
@@ -44,9 +40,7 @@ func (s *postgresDatabaseQuery) Apply(cb func(in Entity) Entity) database.IQuery
 	return s
 }
 
-/**
- * Add single field filter
- */
+// Filter Add single field filter
 func (s *postgresDatabaseQuery) Filter(filter database.QueryFilter) database.IQuery {
 	if filter.IsActive() {
 		s.allFilters = append(s.allFilters, []database.QueryFilter{filter})
@@ -54,11 +48,8 @@ func (s *postgresDatabaseQuery) Filter(filter database.QueryFilter) database.IQu
 	return s
 }
 
-/**
- * Add list of filters, all of them should be satisfied (AND)
- */
+// MatchAll Add list of filters, all of them should be satisfied (AND)
 func (s *postgresDatabaseQuery) MatchAll(filters ...database.QueryFilter) database.IQuery {
-
 	list := make([]database.QueryFilter, 0)
 	for _, filter := range filters {
 		if filter.IsActive() {
@@ -69,9 +60,7 @@ func (s *postgresDatabaseQuery) MatchAll(filters ...database.QueryFilter) databa
 	return s
 }
 
-/**
- * Add list of filters, any of them should be satisfied (OR)
- */
+// MatchAny Add list of filters, any of them should be satisfied (OR)
 func (s *postgresDatabaseQuery) MatchAny(filters ...database.QueryFilter) database.IQuery {
 	list := make([]database.QueryFilter, 0)
 	for _, filter := range filters {
@@ -83,9 +72,7 @@ func (s *postgresDatabaseQuery) MatchAny(filters ...database.QueryFilter) databa
 	return s
 }
 
-/**
- * Add sort order by field,  expects sort parameter in the following form: field_name (Ascending) or field_name- (Descending)
- */
+// Sort Add sort order by field,  expects sort parameter in the following form: field_name (Ascending) or field_name- (Descending)
 func (s *postgresDatabaseQuery) Sort(sort string) database.IQuery {
 	if sort == "" {
 		return s
@@ -102,17 +89,13 @@ func (s *postgresDatabaseQuery) Sort(sort string) database.IQuery {
 	return s
 }
 
-/**
- * Set page size limit (for pagination)
- */
+// Limit Set page size limit (for pagination)
 func (s *postgresDatabaseQuery) Limit(limit int) database.IQuery {
 	s.limit = limit
 	return s
 }
 
-/**
- * Set requested page number (used for pagination)
- */
+// Page Set requested page number (used for pagination)
 func (s *postgresDatabaseQuery) Page(page int) database.IQuery {
 	s.page = page
 	return s
@@ -122,9 +105,7 @@ func (s *postgresDatabaseQuery) Page(page int) database.IQuery {
 
 // region QueryBuilder Execution Methods -------------------------------------------------------------------------------
 
-/**
- * Execute a query to get list of entities by IDs (the criteria is ignored)
- */
+// List Execute a query to get list of entities by IDs (the criteria is ignored)
 func (s *postgresDatabaseQuery) List(entityIDs []string, keys ...string) (out []Entity, err error) {
 
 	result, err := s.db.List(s.factory, entityIDs, keys...)
@@ -142,10 +123,8 @@ func (s *postgresDatabaseQuery) List(entityIDs []string, keys ...string) (out []
 	return
 }
 
-/**
- * Execute query based on the criteria, order and pagination
- * On each record, after the marshaling the result shall be transformed via the query callback chain
- */
+// Find Execute query based on the criteria, order and pagination
+// On each record, after the marshaling the result shall be transformed via the query callback chain
 func (s *postgresDatabaseQuery) Find(keys ...string) (out []Entity, total int64, err error) {
 
 	sql, args := s.buildStatement(keys...)
@@ -191,10 +170,8 @@ func (s *postgresDatabaseQuery) Find(keys ...string) (out []Entity, total int64,
 	return
 }
 
-/**
- * Execute query based on the criteria, order and pagination
- * Return only the count of matching rows
- */
+// Count Execute query based on the criteria, order and pagination
+// returns only the count of matching rows
 func (s *postgresDatabaseQuery) Count(keys ...string) (total int64, err error) {
 
 	sql, args := s.buildCountStatement(keys...)
@@ -228,10 +205,8 @@ func (s *postgresDatabaseQuery) Count(keys ...string) (total int64, err error) {
 	return
 }
 
-/**
- * Execute query based on the where criteria to get a single (the first) result
- * After the marshaling the result shall be transformed via the query callback chain
- */
+// FindSingle Execute query based on the where criteria to get a single (the first) result
+// After the marshaling the result shall be transformed via the query callback chain
 func (s *postgresDatabaseQuery) FindSingle(keys ...string) (entity Entity, err error) {
 
 	s.limit = 1
@@ -246,11 +221,8 @@ func (s *postgresDatabaseQuery) FindSingle(keys ...string) (entity Entity, err e
 	}
 }
 
-/**
- * Execute query based on the criteria, order and pagination and return the results as a map of id->Entity
- */
+// GetMap Execute query based on the criteria, order and pagination and return the results as a map of id->Entity
 func (s *postgresDatabaseQuery) GetMap(keys ...string) (out map[string]Entity, err error) {
-
 	out = make(map[string]Entity)
 
 	sql, args := s.buildStatement(keys...)
@@ -293,10 +265,8 @@ func (s *postgresDatabaseQuery) GetMap(keys ...string) (out map[string]Entity, e
 	return
 }
 
-/**
- * Execute query based on the where criteria, order and pagination and return the results as a list of Ids
- */
-func (s *postgresDatabaseQuery) GetIds(keys ...string) (out []string, err error) {
+// GetIDs Execute query based on the where criteria, order and pagination and return the results as a list of Ids
+func (s *postgresDatabaseQuery) GetIDs(keys ...string) (out []string, err error) {
 
 	out = make([]string, 0)
 
@@ -334,9 +304,7 @@ func (s *postgresDatabaseQuery) GetIds(keys ...string) (out []string, err error)
 	return
 }
 
-/**
- * Execute delete command based on the where criteria
- */
+// Delete Execute delete command based on the where criteria
 func (s *postgresDatabaseQuery) Delete(keys ...string) (total int64, err error) {
 
 	tblName := tableName(s.factory().TABLE(), keys...)
@@ -363,18 +331,14 @@ func (s *postgresDatabaseQuery) Delete(keys ...string) (total int64, err error) 
 	}
 }
 
-/**
- * Update single field of all the documents meeting the criteria in a single transaction
- */
+// SetField Update single field of all the documents meeting the criteria in a single transaction
 func (s *postgresDatabaseQuery) SetField(field string, value any, keys ...string) (total int64, err error) {
 	fields := make(map[string]any)
 	fields[field] = value
 	return s.SetFields(fields, keys...)
 }
 
-/**
- * Update multiple fields of all the documents meeting the criteria in a single transaction
- */
+// SetFields Update multiple fields of all the documents meeting the criteria in a single transaction
 func (s *postgresDatabaseQuery) SetFields(fields map[string]any, keys ...string) (total int64, err error) {
 
 	//args, where := s.buildCriteria()
@@ -419,9 +383,8 @@ func (s *postgresDatabaseQuery) SetFields(fields map[string]any, keys ...string)
 // endregion
 
 // region Query ToString Methods ---------------------------------------------------------------------------------------
-/**
- * Get the string representation of the query
- */
+
+// ToString Get the string representation of the query
 func (s *postgresDatabaseQuery) ToString() string {
 	// Create Json representing the internal builder
 	if bytes, err := json.Marshal(s); err != nil {
@@ -435,9 +398,7 @@ func (s *postgresDatabaseQuery) ToString() string {
 
 // region Query Internal Methods ---------------------------------------------------------------------------------------
 
-/**
- * Scan single database row into Json document
- */
+// Scan single database row into Json document
 func (s *postgresDatabaseQuery) scanRow(rows *sql.Rows) (*JsonDoc, error) {
 
 	jsonDoc := JsonDoc{}
@@ -448,9 +409,7 @@ func (s *postgresDatabaseQuery) scanRow(rows *sql.Rows) (*JsonDoc, error) {
 	}
 }
 
-/**
- * Unmarshal database Json document to Entity
- */
+// Unmarshal database Json document to Entity
 func (s *postgresDatabaseQuery) unMarshal(jsonDoc *JsonDoc, errIn error) (Entity, error) {
 	if errIn != nil {
 		return nil, errIn
@@ -464,9 +423,7 @@ func (s *postgresDatabaseQuery) unMarshal(jsonDoc *JsonDoc, errIn error) (Entity
 	}
 }
 
-/**
- * Transform the entity through the chain of callbacks
- */
+// Transform the entity through the chain of callbacks
 func (s *postgresDatabaseQuery) processCallbacks(in Entity) (out Entity) {
 	if len(s.callbacks) == 0 {
 		out = in

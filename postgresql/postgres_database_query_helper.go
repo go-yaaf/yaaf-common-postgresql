@@ -1,7 +1,6 @@
-// Copyright 2022. Motty Cohen
-//
 // Postgresql SQL query helper to construct SQL queries
 //
+
 package postgresql
 
 import (
@@ -13,9 +12,8 @@ import (
 )
 
 // region Query helper Methods -----------------------------------------------------------------------------------------
-/**
- * Build postgres SQL statement with sql arguments based on the query data
- */
+
+// Build postgres SQL statement with sql arguments based on the query data
 func (s *postgresDatabaseQuery) buildStatement(keys ...string) (SQL string, args []any) {
 
 	args = make([]any, 0)
@@ -41,9 +39,7 @@ func (s *postgresDatabaseQuery) buildStatement(keys ...string) (SQL string, args
 	return
 }
 
-/**
- * Build postgres SQL count statement with sql arguments based on the query data
- */
+// Build postgres SQL count statement with sql arguments based on the query data
 func (s *postgresDatabaseQuery) buildCountStatement(keys ...string) (SQL string, args []any) {
 
 	args = make([]any, 0)
@@ -63,9 +59,7 @@ func (s *postgresDatabaseQuery) buildCountStatement(keys ...string) (SQL string,
 	return
 }
 
-/**
- * Build postgres SQL statement with sql arguments based on the query data
- */
+// Build postgres SQL statement with sql arguments based on the query data
 func (s *postgresDatabaseQuery) buildIdStatement(keys ...string) (SQL string, args []any) {
 
 	args = make([]any, 0)
@@ -91,11 +85,8 @@ func (s *postgresDatabaseQuery) buildIdStatement(keys ...string) (SQL string, ar
 	return
 }
 
-/**
- * Build postgres SQL statement with sql arguments based on the query data
- */
+// Build postgres SQL statement with sql arguments based on the query data
 func (s *postgresDatabaseQuery) buildCriteria() (where string, args []any) {
-
 	parts := make([]string, 0, 0)
 	varIndex := 1
 
@@ -140,9 +131,7 @@ func (s *postgresDatabaseQuery) buildCriteria() (where string, args []any) {
 	return
 }
 
-/**
- * Build order clause based on the query data
- */
+// Build order clause based on the query data
 func (s *postgresDatabaseQuery) buildOrder() string {
 
 	l := len(s.ascOrders) + len(s.descOrders)
@@ -161,11 +150,8 @@ func (s *postgresDatabaseQuery) buildOrder() string {
 	return order
 }
 
-/**
- * Build limit clause for pagination
- */
+// Build limit clause for pagination
 func (s *postgresDatabaseQuery) buildLimit() string {
-
 	// Calculate limit and offset from page number and page size (limit)
 	var offset int
 	if s.limit > 0 {
@@ -233,9 +219,7 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 	}
 }
 
-/**
- * Build LIKE query filter
- */
+// Build LIKE query filter
 func (s *postgresDatabaseQuery) buildFilterLike(qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
 	args = make([]any, 0)
@@ -251,11 +235,8 @@ func (s *postgresDatabaseQuery) buildFilterLike(qf database.QueryFilter, varInde
 	return
 }
 
-/**
- * Handle special characters: * ?
- */
+// Handle special characters: * ?
 func parseWildcards(value string) string {
-
 	if strings.Contains(value, "*") {
 		return strings.Replace(value, "*", "%", -1)
 	} else if strings.Contains(value, "%") {
@@ -265,16 +246,12 @@ func parseWildcards(value string) string {
 	}
 }
 
-/**
- * Build IN query filter
- */
+// Build IN query filter
 func (s *postgresDatabaseQuery) buildFilterIn(qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 	return fmt.Sprintf("(%s = ANY($%d))", qf.GetField(), varIndex), []any{pq.Array(qf.GetValues())}
 }
 
-/**
- * Build NOT IN query filter
- */
+// Build NOT IN query filter
 func (s *postgresDatabaseQuery) buildFilterNotIn(qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 	return fmt.Sprintf("NOT (%s = ANY ($%d))", qf.GetField(), varIndex), []any{pq.Array(qf.GetValues())}
 }

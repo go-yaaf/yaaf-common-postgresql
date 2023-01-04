@@ -1,5 +1,3 @@
-// Copyright 2022. Motty Cohen
-//
 // Integration tests of Postgresql object database implementations
 //
 
@@ -9,6 +7,7 @@ import (
 	"fmt"
 	"github.com/go-yaaf/yaaf-common-postgresql/postgresql"
 	"github.com/go-yaaf/yaaf-common/database"
+	"github.com/go-yaaf/yaaf-common/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"os"
@@ -42,7 +41,7 @@ func TestDbTestSuite(t *testing.T) {
 func (s *PostgresqlTestSuite) SetupSuite() {
 
 	// Create command to run postgresql container
-	err := DockerUtils().CreateContainer("postgres:15").
+	err := utils.DockerUtils().CreateContainer("postgres:15").
 		Name(containerName).
 		Port("5432", dbPort).
 		Var("POSTGRES_USER", dbUser).
@@ -59,7 +58,7 @@ func (s *PostgresqlTestSuite) SetupSuite() {
 
 // TearDownSuite will be run once at the end of the testing suite, after all tests have been run
 func (s *PostgresqlTestSuite) TearDownSuite() {
-	err := DockerUtils().StopContainer(containerName)
+	err := utils.DockerUtils().StopContainer(containerName)
 	assert.Nil(s.T(), err)
 }
 

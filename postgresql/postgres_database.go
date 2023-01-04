@@ -1,5 +1,3 @@
-// Copyright 2022. Motty Cohen
-//
 // Postgresql object database implementations of IDatabase interface
 //
 
@@ -145,8 +143,8 @@ func (dbs *PostgresDatabase) Ping(retries uint, intervalInSeconds uint) error {
 }
 
 // Close DB and free resources
-func (dbs *PostgresDatabase) Close() {
-	_ = dbs.pgDb.Close()
+func (dbs *PostgresDatabase) Close() error {
+	return dbs.pgDb.Close()
 }
 
 // Resolve table name from entity class name and shard keys

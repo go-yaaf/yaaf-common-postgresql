@@ -1,6 +1,5 @@
-// Copyright 2022. Motty Cohen
-//
 // Data model and testing data
+
 package test
 
 import (
