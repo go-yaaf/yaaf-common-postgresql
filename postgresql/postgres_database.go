@@ -116,6 +116,10 @@ func convertConnectionString(dbUri string) (driver string, connStr string, err e
 	pwd, _ := uri.User.Password()
 
 	driver = strings.ToLower(uri.Scheme)
+	if driver == "postgresql" {
+		driver = "postgres"
+	}
+
 	if driver != "postgres" {
 		return "", "", fmt.Errorf("schema for postgresql database must be: postgres")
 	}
