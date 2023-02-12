@@ -66,7 +66,7 @@ func (s *PostgresqlTestSuite) TearDownSuite() {
 func (s *PostgresqlTestSuite) createSUT() database.IDatabase {
 
 	dbURI := fmt.Sprintf("postgres://%s:%s@localhost:%s/%s", dbUser, dbPwd, dbPort, dbName)
-	sut, err := postgresql.NewPostgresStore(dbURI)
+	sut, err := postgresql.NewPostgresDatabase(dbURI)
 	if err != nil {
 		panic(any(err))
 	}
