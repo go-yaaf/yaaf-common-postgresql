@@ -43,11 +43,40 @@ const (
 
 // region Factory method for Database store ----------------------------------------------------------------------------
 
-// NewPostgresStore factory method for database
+// NewPostgresStore factory method for datastore
 //
 // param: URI - represents the database connection string in the format of: postgresql://user:password@host:port/database_name?application_name
 // return: IDatabase instance, error
-func NewPostgresStore(URI string) (dbs database.IDatabase, err error) {
+func NewPostgresStore(URI string) (dbs database.IDatastore, err error) {
+
+	var (
+		driver, connStr string
+		db              *sql.DB
+	)
+
+	// Ensure driver name
+	if driver, connStr, err = convertConnectionString(URI); err != nil {
+		return nil, err
+	}
+
+	// Open connection
+	if db, err = sql.Open(driver, connStr); err != nil {
+		return nil, err
+	}
+
+	if err = db.Ping(); err != nil {
+		return nil, err
+	} else {
+		dbs = &PostgresDatabase{pgDb: db}
+	}
+	return
+}
+
+// NewPostgresDatabase factory method for database
+//
+// param: URI - represents the database connection string in the format of: postgresql://user:password@host:port/database_name?application_name
+// return: IDatabase instance, error
+func NewPostgresDatabase(URI string) (dbs database.IDatabase, err error) {
 
 	var (
 		driver, connStr string
@@ -781,6 +810,34 @@ func (dbs *PostgresDatabase) PurgeTable(table string) (err error) {
 func (dbs *PostgresDatabase) publishChange(action EntityAction, entity Entity) {
 
 	// TODO: create pub/sub message and publish it on the injected message bug
+}
+
+// endregion
+
+// region Datastore  methods -------------------------------------------------------------------------------------------
+
+// IndexExists tests if index exists
+func (dbs *PostgresDatabase) IndexExists(indexName string) (exists bool) {
+	// TODO: Add implementation
+	return false
+}
+
+// CreateIndex creates an index (without mapping)
+func (dbs *PostgresDatabase) CreateIndex(indexName string) (name string, err error) {
+	// TODO: Add implementation
+	return indexName, fmt.Errorf("not implemented")
+}
+
+// CreateEntityIndex creates an index of entity and add entity field mapping
+func (dbs *PostgresDatabase) CreateEntityIndex(factory EntityFactory, key string) (name string, err error) {
+	// TODO: Add implementation
+	return key, fmt.Errorf("not implemented")
+}
+
+// DropIndex drops an index
+func (dbs *PostgresDatabase) DropIndex(indexName string) (ack bool, err error) {
+	// TODO: Add implementation
+	return false, fmt.Errorf("not implemented")
 }
 
 // endregion
