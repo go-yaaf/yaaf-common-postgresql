@@ -728,7 +728,7 @@ func (dbs *PostgresDatabase) ExecuteDDL(ddl map[string][]string) (err error) {
 // param: args - Statement arguments
 // return: Number of affected records, error
 func (dbs *PostgresDatabase) ExecuteSQL(sql string, args ...any) (affected int64, err error) {
-	if result, er := dbs.pgDb.Exec(sql); er != nil {
+	if result, er := dbs.pgDb.Exec(sql, args); er != nil {
 		logger.Debug("%s error: %s", sql, err.Error())
 		return 0, er
 	} else {
