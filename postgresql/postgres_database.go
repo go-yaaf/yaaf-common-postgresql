@@ -698,7 +698,7 @@ func (dbs *PostgresDatabase) SetFields(factory EntityFactory, entityID string, f
 
 	// append entityID
 	fieldsArgs = append(fieldsArgs, entityID)
-	if _, err = dbs.pgDb.Exec(SQL, fieldsArgs); err != nil {
+	if _, err = dbs.pgDb.Exec(SQL, fieldsArgs...); err != nil {
 		return
 	}
 
@@ -757,7 +757,7 @@ func (dbs *PostgresDatabase) ExecuteDDL(ddl map[string][]string) (err error) {
 // param: args - Statement arguments
 // return: Number of affected records, error
 func (dbs *PostgresDatabase) ExecuteSQL(sql string, args ...any) (affected int64, err error) {
-	if result, er := dbs.pgDb.Exec(sql, args); er != nil {
+	if result, er := dbs.pgDb.Exec(sql, args...); er != nil {
 		logger.Debug("%s error: %s", sql, err.Error())
 		return 0, er
 	} else {
