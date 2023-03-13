@@ -72,16 +72,7 @@ func (s *postgresDatabaseQuery) buildIdStatement(keys ...string) (SQL string, ar
 	order := s.buildOrder()
 	limit := s.buildLimit()
 
-	whereClause := fmt.Sprintf("WHERE %s", where)
-	if len(where) == 0 {
-		whereClause = ""
-	}
-	orderClause := fmt.Sprintf("ORDER BY %s", order)
-	if len(orderClause) == 0 {
-		orderClause = ""
-	}
-
-	SQL = fmt.Sprintf(`SELECT id FROM "%s" %s %s %s`, tblName, whereClause, orderClause, limit)
+	SQL = fmt.Sprintf(`SELECT id FROM "%s" %s %s %s`, tblName, where, order, limit)
 	return
 }
 
