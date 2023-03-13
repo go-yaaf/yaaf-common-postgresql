@@ -142,7 +142,7 @@ func (s *postgresDatabaseQuery) Find(keys ...string) (out []Entity, total int64,
 	}()
 
 	// Execute the query
-	rows, fe := statement.Query(args)
+	rows, fe := statement.Query(args...)
 	if fe != nil {
 		if rows != nil {
 			_ = rows.Close()
@@ -189,7 +189,7 @@ func (s *postgresDatabaseQuery) Count(keys ...string) (total int64, err error) {
 	}()
 
 	// Execute the query
-	rows, fe := statement.Query(args)
+	rows, fe := statement.Query(args...)
 	if fe != nil {
 		if rows != nil {
 			_ = rows.Close()
@@ -240,7 +240,7 @@ func (s *postgresDatabaseQuery) GetMap(keys ...string) (out map[string]Entity, e
 	}()
 
 	// Execute the query
-	rows, fe := statement.Query(args)
+	rows, fe := statement.Query(args...)
 	if fe != nil {
 		if rows != nil {
 			_ = rows.Close()
@@ -285,7 +285,7 @@ func (s *postgresDatabaseQuery) GetIDs(keys ...string) (out []string, err error)
 	}()
 
 	// Execute the query
-	rows, fe := statement.Query(args)
+	rows, fe := statement.Query(args...)
 	if fe != nil {
 		if rows != nil {
 			_ = rows.Close()
