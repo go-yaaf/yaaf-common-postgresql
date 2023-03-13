@@ -31,7 +31,7 @@ func (s *postgresDatabaseQuery) buildStatement(keys ...string) (SQL string, args
 		whereClause = ""
 	}
 	orderClause := fmt.Sprintf("ORDER BY %s", order)
-	if len(orderClause) == 0 {
+	if len(order) == 0 {
 		orderClause = ""
 	}
 
