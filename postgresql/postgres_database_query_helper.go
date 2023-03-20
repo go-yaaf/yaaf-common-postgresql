@@ -26,16 +26,7 @@ func (s *postgresDatabaseQuery) buildStatement(keys ...string) (SQL string, args
 	order := s.buildOrder()
 	limit := s.buildLimit()
 
-	whereClause := fmt.Sprintf("WHERE %s", where)
-	if len(where) == 0 {
-		whereClause = ""
-	}
-	orderClause := fmt.Sprintf("ORDER BY %s", order)
-	if len(order) == 0 {
-		orderClause = ""
-	}
-
-	SQL = fmt.Sprintf(`SELECT id, data FROM "%s" %s %s %s`, tblName, whereClause, orderClause, limit)
+	SQL = fmt.Sprintf(`SELECT id, data FROM "%s" %s %s %s`, tblName, where, order, limit)
 	return
 }
 
@@ -50,12 +41,7 @@ func (s *postgresDatabaseQuery) buildCountStatement(keys ...string) (SQL string,
 	// Build the WHERE clause
 	where, args := s.buildCriteria()
 
-	whereClause := fmt.Sprintf("WHERE %s", where)
-	if len(where) == 0 {
-		whereClause = ""
-	}
-
-	SQL = fmt.Sprintf(`SELECT count(*) as cnt FROM "%s" %s`, tblName, whereClause)
+	SQL = fmt.Sprintf(`SELECT count(*) as cnt FROM "%s" %s`, tblName, where)
 	return
 }
 
