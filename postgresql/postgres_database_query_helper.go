@@ -158,16 +158,6 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 		fieldName = fmt.Sprintf("data->>'%s'", qf.GetField())
 	}
 
-	// If value is sub-query, build sub-query
-	//if qb, ok := value.(*queryBuilder); ok {
-	//	subQuery, args := buildSubQuery(qb)
-	//	if len(args) > 0 {
-	//		return fmt.Sprintf("(%s IN (%s))", name, subQuery), args
-	//	} else {
-	//		return fmt.Sprintf("(%s IN (%s))", name, subQuery), nil
-	//	}
-	//}
-
 	switch qf.GetOperator() {
 	case database.Eq:
 		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), qf.GetValues()
@@ -182,11 +172,11 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 	case database.Lte:
 		return fmt.Sprintf("(%s <= $%d)", fieldName, varIndex), qf.GetValues()
 	case database.Like:
-		return s.buildFilterLike(qf, varIndex)
+		return s.buildFilterLike(fieldName, qf, varIndex)
 	case database.In:
-		return s.buildFilterIn(qf, varIndex)
+		return s.buildFilterIn(fieldName, qf, varIndex)
 	case database.NotIn:
-		return s.buildFilterNotIn(qf, varIndex)
+		return s.buildFilterNotIn(fieldName, qf, varIndex)
 	case database.Between:
 		return fmt.Sprintf("(%s BETWEEN $%d AND $%d)", fieldName, varIndex, varIndex+1), qf.GetValues()
 	case database.Contains:
@@ -197,14 +187,14 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 }
 
 // Build LIKE query filter
-func (s *postgresDatabaseQuery) buildFilterLike(qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
+func (s *postgresDatabaseQuery) buildFilterLike(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
 	args = make([]any, 0)
 	parts := make([]string, 0)
 
 	for _, value := range qf.GetValues() {
 		str := parseWildcards(fmt.Sprintf("%v", value))
-		parts = append(parts, fmt.Sprintf("(lower(%s) LIKE lower($%d))", qf.GetField(), varIndex))
+		parts = append(parts, fmt.Sprintf("(lower(%s) LIKE lower($%d))", fieldName, varIndex))
 		args = append(args, str)
 		varIndex++
 	}
@@ -224,13 +214,13 @@ func parseWildcards(value string) string {
 }
 
 // Build IN query filter
-func (s *postgresDatabaseQuery) buildFilterIn(qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
-	return fmt.Sprintf("(%s = ANY($%d))", qf.GetField(), varIndex), []any{pq.Array(qf.GetValues())}
+func (s *postgresDatabaseQuery) buildFilterIn(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
+	return fmt.Sprintf("(%s = ANY($%d))", fieldName, varIndex), []any{pq.Array(qf.GetValues())}
 }
 
 // Build NOT IN query filter
-func (s *postgresDatabaseQuery) buildFilterNotIn(qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
-	return fmt.Sprintf("NOT (%s = ANY ($%d))", qf.GetField(), varIndex), []any{pq.Array(qf.GetValues())}
+func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
+	return fmt.Sprintf("NOT (%s = ANY ($%d))", fieldName, varIndex), []any{pq.Array(qf.GetValues())}
 }
 
 // endregion
