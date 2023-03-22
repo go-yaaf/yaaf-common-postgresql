@@ -87,7 +87,7 @@ func (s *postgresDatabaseQuery) buildCriteria() (where string, args []any) {
 		for _, fq := range list {
 			part, partArgs := s.buildFilter(fq, varIndex)
 			if len(part) > 0 {
-				parts = append(parts, part)
+				orParts = append(orParts, part)
 				if partArgs != nil {
 					args = append(args, partArgs...)
 					varIndex += len(partArgs)
