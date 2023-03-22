@@ -215,6 +215,8 @@ func parseWildcards(value string) string {
 
 // Build IN query filter
 func (s *postgresDatabaseQuery) buildFilterIn(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
+
+	// For some reason, this code is not working
 	return fmt.Sprintf("(%s = ANY($%d))", fieldName, varIndex), []any{pq.Array(qf.GetValues())}
 }
 
