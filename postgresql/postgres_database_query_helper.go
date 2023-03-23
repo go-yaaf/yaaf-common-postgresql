@@ -216,20 +216,26 @@ func parseWildcards(value string) string {
 // Build IN query filter
 func (s *postgresDatabaseQuery) buildFilterIn(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
+	return fmt.Sprintf("(%s = ANY($%d))", fieldName, varIndex), []any{pq.Array(qf.GetValues())}
+
 	// For string values, use IN clause
+	/**
 	values := qf.GetValues()
 	if _, ok := values[0].(string); ok {
 		list := createStringsList(values)
 		return fmt.Sprintf("(%s IN (%s))", fieldName, list), nil
 	} else {
 		return fmt.Sprintf("(%s = ANY($%d))", fieldName, varIndex), []any{pq.Array(qf.GetValues())}
-	}
+	} */
 }
 
 // Build NOT IN query filter
 func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
+	return fmt.Sprintf("NOT (%s = ANY ($%d))", fieldName, varIndex), []any{pq.Array(qf.GetValues())}
+
 	// For string values, use IN clause
+	/**
 	values := qf.GetValues()
 	if _, ok := values[0].(string); ok {
 		list := createStringsList(values)
@@ -237,15 +243,16 @@ func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.Q
 	} else {
 		return fmt.Sprintf("NOT (%s = ANY ($%d))", fieldName, varIndex), []any{pq.Array(qf.GetValues())}
 	}
+	*/
 }
 
 // Build filter for strings
-func createStringsList(values []any) string {
-	list := make([]string, 0)
-	for _, v := range values {
-		list = append(list, fmt.Sprintf("'%v'", v))
-	}
-	return strings.Join(list, ",")
-}
+//func createStringsList(values []any) string {
+//	list := make([]string, 0)
+//	for _, v := range values {
+//		list = append(list, fmt.Sprintf("'%v'", v))
+//	}
+//	return strings.Join(list, ",")
+//}
 
 // endregion
