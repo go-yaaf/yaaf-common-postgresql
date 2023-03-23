@@ -311,13 +311,8 @@ func (s *postgresDatabaseQuery) Delete(keys ...string) (total int64, err error) 
 	where, args := s.buildCriteria()
 	limit := s.buildLimit()
 
-	whereClause := fmt.Sprintf("WHERE %s", where)
-	if len(where) == 0 {
-		whereClause = ""
-	}
-
 	// Build the SQL
-	SQL := fmt.Sprintf(`DELETE FROM "%s" WHERE %s %s`, tblName, whereClause, limit)
+	SQL := fmt.Sprintf(`DELETE FROM "%s" %s %s`, tblName, where, limit)
 	logger.Debug(SQL)
 
 	if res, ser := s.db.pgDb.Exec(SQL, args...); err != nil {
@@ -341,8 +336,6 @@ func (s *postgresDatabaseQuery) SetField(field string, value any, keys ...string
 // SetFields Update multiple fields of all the documents meeting the criteria in a single transaction
 func (s *postgresDatabaseQuery) SetFields(fields map[string]any, keys ...string) (total int64, err error) {
 
-	//args, where := s.buildCriteria()
-
 	allArgs := make([]any, 0)
 
 	entity := s.factory()
@@ -360,13 +353,9 @@ func (s *postgresDatabaseQuery) SetFields(fields map[string]any, keys ...string)
 
 	// Build the WHERE clause
 	where, args := s.buildCriteria()
-	whereClause := fmt.Sprintf("WHERE %s", where)
-	if len(where) == 0 {
-		whereClause = ""
-	}
 
 	allArgs = append(allArgs, args)
-	SQL := fmt.Sprintf(`UPDATE "%s" SET data = data || '{%s}' %s`, tblName, fieldsList, whereClause)
+	SQL := fmt.Sprintf(`UPDATE "%s" SET data = data || '{%s}' %s`, tblName, fieldsList, where)
 	logger.Debug(SQL)
 
 	if res, er := s.db.pgDb.Exec(SQL, allArgs...); er != nil {
