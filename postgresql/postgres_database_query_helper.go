@@ -243,7 +243,7 @@ func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.Q
 func createStringsList(values []any) string {
 	list := make([]string, 0)
 	for _, v := range values {
-		list = append(list, fmt.Sprintf("`%v`", v))
+		list = append(list, fmt.Sprintf("'%v'", v))
 	}
 	return strings.Join(list, ",")
 }
