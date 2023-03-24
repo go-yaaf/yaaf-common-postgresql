@@ -83,7 +83,7 @@ func (s *PostgresqlTestSuite) createSUT() database.IDatabase {
 	assert.Nil(s.T(), err)
 
 	// Insert test data
-	if affected, err := sut.BulkInsert(list_of_heroes); err != nil {
+	if affected, err := sut.BulkUpsert(list_of_heroes); err != nil {
 		panic(any(err))
 	} else {
 		fmt.Println(affected)
@@ -97,4 +97,11 @@ func (s *PostgresqlTestSuite) TestDatabaseSet() {
 	list, er := sut.List(NewHero, []string{"1", "2", "3", "4"})
 	assert.Nil(s.T(), er)
 	assert.Equal(s.T(), 4, len(list))
+
+	group, total, err := sut.Query(NewHero).GroupCount("key")
+
+	assert.Nil(s.T(), err)
+	assert.NotEqual(s.T(), total, 0)
+	assert.NotEqual(s.T(), len(group), 0)
+
 }

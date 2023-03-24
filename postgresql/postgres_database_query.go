@@ -205,6 +205,47 @@ func (s *postgresDatabaseQuery) Count(keys ...string) (total int64, err error) {
 	return
 }
 
+// GroupCount Execute the query based on the criteria, grouped by field and return count per group
+func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (out map[int]int64, total int64, err error) {
+
+	result := make(map[int]int64)
+
+	// Build the group count statement
+	tblName := tableName(s.factory().TABLE(), keys...)
+	args := make([]any, 0)
+	where, args := s.buildCriteria()
+	sql := fmt.Sprintf(`SELECT count(*) cnt , data->>'%s' grp FROM "%s" %s GROUP BY grp`, field, tblName, where)
+	logger.Debug(sql)
+
+	statement, e := s.db.pgDb.Prepare(sql)
+	if e != nil {
+		return result, 0, e
+	}
+
+	// Execute the query
+	rows, err := statement.Query(args...)
+	defer func() {
+		if statement != nil {
+			_ = statement.Close()
+		}
+	}()
+
+	if err != nil {
+		return result, 0, err
+	}
+
+	var count int64
+	var group int
+
+	for rows.Next() {
+		if er := rows.Scan(&count, &group); er == nil {
+			result[group] = count
+			total += count
+		}
+	}
+	return result, total, nil
+}
+
 // FindSingle Execute query based on the where criteria to get a single (the first) result
 // After the marshaling the result shall be transformed via the query callback chain
 func (s *postgresDatabaseQuery) FindSingle(keys ...string) (entity Entity, err error) {
