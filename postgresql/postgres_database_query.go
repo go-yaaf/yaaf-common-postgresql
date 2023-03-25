@@ -445,7 +445,7 @@ func (s *postgresDatabaseQuery) Histogram2D(field, function, dim, timeField stri
 	sql := fmt.Sprintf(
 		`SELECT %s(%s) cnt, (data->>'%s') dim,
 				date_trunc('%s', to_timestamp((data->>'%s')::bigint / 1000)) dp 
-				FROM "%s" %s GROUP BY dp ORDER BY dp`, function, aggr, dim, dp, timeField, tblName, where)
+				FROM "%s" %s GROUP BY dp, dim ORDER BY dp`, function, aggr, dim, dp, timeField, tblName, where)
 
 	logger.Debug(sql)
 
