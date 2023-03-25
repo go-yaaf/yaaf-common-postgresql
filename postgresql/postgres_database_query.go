@@ -247,7 +247,7 @@ func (s *postgresDatabaseQuery) Aggregation(field, function string, keys ...stri
 }
 
 // GroupCount Execute the query based on the criteria, grouped by field and return count per group
-func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (out map[int]int64, total int64, err error) {
+func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (map[int]int64, int64, error) {
 
 	result := make(map[int]int64)
 
@@ -275,7 +275,7 @@ func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (out ma
 		return result, 0, err
 	}
 
-	var count int64
+	var count, total int64
 	var group int
 
 	for rows.Next() {
@@ -289,7 +289,7 @@ func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (out ma
 
 // GroupAggregation Execute the query based on the criteria, order and pagination and return the aggregated value per group
 // supported functions: count : avg, sum, min, max
-func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ...string) (out map[any]float64, err error) {
+func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ...string) (map[any]float64, error) {
 
 	if !collections.Include(functions, function) {
 		return nil, fmt.Errorf("function %s not supported", function)
@@ -338,7 +338,7 @@ func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ..
 
 // Histogram returns a time series data points based on the time field, supported intervals: Minute, Hour, Day, week, month
 // supported functions: count : avg, sum, min, max
-func (s *postgresDatabaseQuery) Histogram(field, function, timeField string, interval time.Duration, keys ...string) (out map[Timestamp]float64, total float64, err error) {
+func (s *postgresDatabaseQuery) Histogram(field, function, timeField string, interval time.Duration, keys ...string) (map[Timestamp]float64, float64, error) {
 
 	if !collections.Include(functions, function) {
 		return nil, 0, fmt.Errorf("function %s not supported", function)
@@ -394,18 +394,18 @@ func (s *postgresDatabaseQuery) Histogram(field, function, timeField string, int
 		return result, 0, err
 	}
 
-	var count float64
+	var count, total float64
 	var ts Timestamp
 	var rTime time.Time
 
 	for rows.Next() {
 		if er := rows.Scan(&count, &rTime); er == nil {
 			ts = Timestamp(rTime.Unix() * 1000)
-			out[ts] = count
+			result[ts] = count
 			total += count
 		}
 	}
-	return out, total, nil
+	return result, total, nil
 }
 
 // FindSingle Execute query based on the where criteria to get a single (the first) result
