@@ -3,7 +3,7 @@ module github.com/go-yaaf/yaaf-common-postgresql
 go 1.20
 
 require (
-	github.com/go-yaaf/yaaf-common v1.2.34
+	github.com/go-yaaf/yaaf-common v1.2.35
 	github.com/lib/pq v1.10.7
 	github.com/stretchr/testify v1.8.0
 )
