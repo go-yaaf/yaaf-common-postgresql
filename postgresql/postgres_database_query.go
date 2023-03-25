@@ -408,6 +408,83 @@ func (s *postgresDatabaseQuery) Histogram(field, function, timeField string, int
 	return result, total, nil
 }
 
+// Histogram2D returns a two-dimensional time series data points based on the time field, supported intervals: Minute, Hour, Day, week, month
+// the data point is a calculation of the provided function on the selected field
+// supported functions: count : avg, sum, min, max
+func (s *postgresDatabaseQuery) Histogram2D(field, function, dim, timeField string, interval time.Duration, keys ...string) (map[Timestamp]map[int]float64, float64, error) {
+	if !collections.Include(functions, function) {
+		return nil, 0, fmt.Errorf("function %s not supported", function)
+	}
+	result := make(map[Timestamp]map[int]float64)
+
+	// Build the group count statement
+	tblName := tableName(s.factory().TABLE(), keys...)
+	args := make([]any, 0)
+	where, args := s.buildCriteria()
+
+	// calculate date part
+	dp := "minute"
+	switch interval {
+	case time.Minute:
+		dp = "minute"
+	case time.Hour:
+		dp = "hour"
+	case time.Hour * 24:
+		dp = "day"
+	case time.Hour * 24 * 7:
+		dp = "week"
+	case time.Hour * 24 * 30:
+		dp = "month"
+	}
+
+	aggr := "*"
+	if function != "count" {
+		aggr = fmt.Sprintf("(data->>'%s')::FLOAT", field)
+	}
+
+	sql := fmt.Sprintf(
+		`SELECT %s(%s) cnt, (data->>'%s') dim,
+				date_trunc('%s', to_timestamp((data->>'%s')::bigint / 1000)) dp 
+				FROM "%s" %s GROUP BY dp ORDER BY dp`, function, aggr, dim, dp, timeField, tblName, where)
+
+	logger.Debug(sql)
+
+	statement, e := s.db.pgDb.Prepare(sql)
+	if e != nil {
+		return result, 0, e
+	}
+
+	// Execute the query
+	rows, err := statement.Query(args...)
+	defer func() {
+		if statement != nil {
+			_ = statement.Close()
+		}
+	}()
+
+	if err != nil {
+		return result, 0, err
+	}
+
+	var count, total float64
+	var dimVal int
+	var ts Timestamp
+	var rTime time.Time
+
+	for rows.Next() {
+		if er := rows.Scan(&count, &dimVal, &rTime); er == nil {
+			ts = Timestamp(rTime.Unix() * 1000)
+
+			if _, ok := result[ts]; !ok {
+				result[ts] = make(map[int]float64)
+			}
+			result[ts][dimVal] = count
+			total += count
+		}
+	}
+	return result, total, nil
+}
+
 // FindSingle Execute query based on the where criteria to get a single (the first) result
 // After the marshaling the result shall be transformed via the query callback chain
 func (s *postgresDatabaseQuery) FindSingle(keys ...string) (entity Entity, err error) {
