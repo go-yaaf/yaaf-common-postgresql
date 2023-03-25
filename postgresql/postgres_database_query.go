@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-yaaf/yaaf-common/database"
 	. "github.com/go-yaaf/yaaf-common/entity"
@@ -244,6 +245,69 @@ func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (out ma
 		}
 	}
 	return result, total, nil
+}
+
+// Histogram returns a time series data points based on the time field, supported intervals: Minute, Hour, Day, week, month
+func (s *postgresDatabaseQuery) Histogram(timeField string, interval time.Duration, keys ...string) (out map[Timestamp]int64, total int64, err error) {
+
+	result := make(map[Timestamp]int64)
+
+	// Build the group count statement
+	tblName := tableName(s.factory().TABLE(), keys...)
+	args := make([]any, 0)
+	where, args := s.buildCriteria()
+
+	// calculate date part
+	dp := "minute"
+	switch interval {
+	case time.Minute:
+		dp = "minute"
+	case time.Hour:
+		dp = "hour"
+	case time.Hour * 24:
+		dp = "day"
+	case time.Hour * 24 * 7:
+		dp = "week"
+	case time.Hour * 24 * 30:
+		dp = "month"
+	}
+
+	sql := fmt.Sprintf(
+		`SELECT count(*) cnt, 
+				date_trunc('%s', to_timestamp((data->>'%s')::bigint / 1000)) dp 
+				FROM "%s" %s GROUP BY dp ORDER BY dp`, dp, timeField, tblName, where)
+
+	logger.Debug(sql)
+
+	statement, e := s.db.pgDb.Prepare(sql)
+	if e != nil {
+		return result, 0, e
+	}
+
+	// Execute the query
+	rows, err := statement.Query(args...)
+	defer func() {
+		if statement != nil {
+			_ = statement.Close()
+		}
+	}()
+
+	if err != nil {
+		return result, 0, err
+	}
+
+	var count int64
+	var ts Timestamp
+	var rTime time.Time
+
+	for rows.Next() {
+		if er := rows.Scan(&count, &rTime); er == nil {
+			ts = Timestamp(rTime.Unix() * 1000)
+			out[ts] = count
+			total += count
+		}
+	}
+	return out, total, nil
 }
 
 // FindSingle Execute query based on the where criteria to get a single (the first) result
