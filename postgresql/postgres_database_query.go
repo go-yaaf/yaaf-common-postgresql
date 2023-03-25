@@ -7,14 +7,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/go-yaaf/yaaf-common/utils/collections"
-	"strings"
-	"time"
-
 	"github.com/go-yaaf/yaaf-common/database"
 	. "github.com/go-yaaf/yaaf-common/entity"
 	"github.com/go-yaaf/yaaf-common/logger"
+	"github.com/go-yaaf/yaaf-common/utils/collections"
+	"strings"
+	"time"
 )
+
+var functions = []string{"count", "avg", "sum", "min", "max"}
 
 // region postgres query internal structure ----------------------------------------------------------------------------
 
@@ -208,10 +209,10 @@ func (s *postgresDatabaseQuery) Count(keys ...string) (total int64, err error) {
 }
 
 // Aggregation Execute the query based on the criteria, order and pagination and return the provided aggregation function on the field
-// supported functions: count ,agv, sum, min, max
+// supported functions: count ,avg, sum, min, max
 func (s *postgresDatabaseQuery) Aggregation(field, function string, keys ...string) (value float64, err error) {
 
-	if !collections.Include([]string{"count", "agv", "sum", "min", "max"}, function) {
+	if !collections.Include(functions, function) {
 		return 0, fmt.Errorf("function %s not supported", function)
 	}
 	sql, args := s.buildCountStatement(field, function, keys...)
@@ -287,10 +288,10 @@ func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (out ma
 }
 
 // GroupAggregation Execute the query based on the criteria, order and pagination and return the aggregated value per group
-// supported functions: count : agv, sum, min, max
+// supported functions: count : avg, sum, min, max
 func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ...string) (out map[any]float64, err error) {
 
-	if !collections.Include([]string{"count", "agv", "sum", "min", "max"}, function) {
+	if !collections.Include(functions, function) {
 		return nil, fmt.Errorf("function %s not supported", function)
 	}
 	result := make(map[any]float64)
@@ -336,10 +337,10 @@ func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ..
 }
 
 // Histogram returns a time series data points based on the time field, supported intervals: Minute, Hour, Day, week, month
-// supported functions: count : agv, sum, min, max
+// supported functions: count : avg, sum, min, max
 func (s *postgresDatabaseQuery) Histogram(field, function, timeField string, interval time.Duration, keys ...string) (out map[Timestamp]float64, total float64, err error) {
 
-	if !collections.Include([]string{"count", "agv", "sum", "min", "max"}, function) {
+	if !collections.Include(functions, function) {
 		return nil, 0, fmt.Errorf("function %s not supported", function)
 	}
 	result := make(map[Timestamp]float64)
