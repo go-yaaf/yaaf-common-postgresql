@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/go-yaaf/yaaf-common/utils/collections"
 	"strings"
 	"time"
 
@@ -175,7 +176,7 @@ func (s *postgresDatabaseQuery) Find(keys ...string) (out []Entity, total int64,
 // returns only the count of matching rows
 func (s *postgresDatabaseQuery) Count(keys ...string) (total int64, err error) {
 
-	sql, args := s.buildCountStatement(keys...)
+	sql, args := s.buildCountStatement("", "count", keys...)
 	logger.Debug(sql)
 
 	statement, e := s.db.pgDb.Prepare(sql)
@@ -200,6 +201,44 @@ func (s *postgresDatabaseQuery) Count(keys ...string) (total int64, err error) {
 
 	if rows.Next() {
 		err = rows.Scan(&total)
+	}
+
+	_ = rows.Close()
+	return
+}
+
+// Aggregation Execute the query based on the criteria, order and pagination and return the provided aggregation function on the field
+// supported functions: count ,agv, sum, min, max
+func (s *postgresDatabaseQuery) Aggregation(field, function string, keys ...string) (value float64, err error) {
+
+	if !collections.Include([]string{"count", "agv", "sum", "min", "max"}, function) {
+		return 0, fmt.Errorf("function %s not supported", function)
+	}
+	sql, args := s.buildCountStatement(field, function, keys...)
+	logger.Debug(sql)
+
+	statement, e := s.db.pgDb.Prepare(sql)
+	if e != nil {
+		return 0, e
+	}
+
+	defer func() {
+		if statement != nil {
+			_ = statement.Close()
+		}
+	}()
+
+	// Execute the query
+	rows, fe := statement.Query(args...)
+	if fe != nil {
+		if rows != nil {
+			_ = rows.Close()
+		}
+		return 0, e
+	}
+
+	if rows.Next() {
+		err = rows.Scan(&value)
 	}
 
 	_ = rows.Close()
@@ -247,10 +286,63 @@ func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (out ma
 	return result, total, nil
 }
 
-// Histogram returns a time series data points based on the time field, supported intervals: Minute, Hour, Day, week, month
-func (s *postgresDatabaseQuery) Histogram(timeField string, interval time.Duration, keys ...string) (out map[Timestamp]int64, total int64, err error) {
+// GroupAggregation Execute the query based on the criteria, order and pagination and return the aggregated value per group
+// supported functions: count : agv, sum, min, max
+func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ...string) (out map[any]float64, err error) {
 
-	result := make(map[Timestamp]int64)
+	if !collections.Include([]string{"count", "agv", "sum", "min", "max"}, function) {
+		return nil, fmt.Errorf("function %s not supported", function)
+	}
+	result := make(map[any]float64)
+
+	// Build the group count statement
+	tblName := tableName(s.factory().TABLE(), keys...)
+	args := make([]any, 0)
+	where, args := s.buildCriteria()
+
+	aggr := "*"
+	if function != "count" {
+		aggr = fmt.Sprintf("(data->>'%s')::FLOAT", field)
+	}
+	sql := fmt.Sprintf(`SELECT %s(%s) cnt , data->>'%s' grp FROM "%s" %s GROUP BY grp`, function, aggr, field, tblName, where)
+	logger.Debug(sql)
+
+	statement, e := s.db.pgDb.Prepare(sql)
+	if e != nil {
+		return result, e
+	}
+
+	// Execute the query
+	rows, err := statement.Query(args...)
+	defer func() {
+		if statement != nil {
+			_ = statement.Close()
+		}
+	}()
+
+	if err != nil {
+		return result, err
+	}
+
+	var count float64
+	var group int
+
+	for rows.Next() {
+		if er := rows.Scan(&count, &group); er == nil {
+			result[group] = count
+		}
+	}
+	return result, nil
+}
+
+// Histogram returns a time series data points based on the time field, supported intervals: Minute, Hour, Day, week, month
+// supported functions: count : agv, sum, min, max
+func (s *postgresDatabaseQuery) Histogram(field, function, timeField string, interval time.Duration, keys ...string) (out map[Timestamp]float64, total float64, err error) {
+
+	if !collections.Include([]string{"count", "agv", "sum", "min", "max"}, function) {
+		return nil, 0, fmt.Errorf("function %s not supported", function)
+	}
+	result := make(map[Timestamp]float64)
 
 	// Build the group count statement
 	tblName := tableName(s.factory().TABLE(), keys...)
@@ -272,10 +364,15 @@ func (s *postgresDatabaseQuery) Histogram(timeField string, interval time.Durati
 		dp = "month"
 	}
 
+	aggr := "*"
+	if function != "count" {
+		aggr = fmt.Sprintf("(data->>'%s')::FLOAT", field)
+	}
+
 	sql := fmt.Sprintf(
-		`SELECT count(*) cnt, 
+		`SELECT %s(%s) cnt, 
 				date_trunc('%s', to_timestamp((data->>'%s')::bigint / 1000)) dp 
-				FROM "%s" %s GROUP BY dp ORDER BY dp`, dp, timeField, tblName, where)
+				FROM "%s" %s GROUP BY dp ORDER BY dp`, function, aggr, dp, timeField, tblName, where)
 
 	logger.Debug(sql)
 
@@ -296,7 +393,7 @@ func (s *postgresDatabaseQuery) Histogram(timeField string, interval time.Durati
 		return result, 0, err
 	}
 
-	var count int64
+	var count float64
 	var ts Timestamp
 	var rTime time.Time
 

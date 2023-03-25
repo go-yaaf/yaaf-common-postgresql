@@ -31,7 +31,8 @@ func (s *postgresDatabaseQuery) buildStatement(keys ...string) (SQL string, args
 }
 
 // Build postgres SQL count statement with sql arguments based on the query data
-func (s *postgresDatabaseQuery) buildCountStatement(keys ...string) (SQL string, args []any) {
+// supported aggregations: count, sum, avg, min, max
+func (s *postgresDatabaseQuery) buildCountStatement(field, function string, keys ...string) (SQL string, args []any) {
 
 	args = make([]any, 0)
 
@@ -41,7 +42,11 @@ func (s *postgresDatabaseQuery) buildCountStatement(keys ...string) (SQL string,
 	// Build the WHERE clause
 	where, args := s.buildCriteria()
 
-	SQL = fmt.Sprintf(`SELECT count(*) as cnt FROM "%s" %s`, tblName, where)
+	aggr := "*"
+	if function != "count" {
+		aggr = fmt.Sprintf("(data->>'%s')::FLOAT", field)
+	}
+	SQL = fmt.Sprintf(`SELECT %s(%s) as aggr FROM "%s" %s`, function, aggr, tblName, where)
 	return
 }
 
