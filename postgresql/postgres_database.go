@@ -691,7 +691,7 @@ func (dbs *PostgresDatabase) SetFields(factory EntityFactory, entityID string, f
 	fieldsArgs := make([]any, 0, len(fields))
 	i := 1
 	for f, v := range fields {
-		fieldsStrings = append(fieldsStrings, fmt.Sprintf(`"%s": $%d`, f, i))
+		fieldsStrings = append(fieldsStrings, fmt.Sprintf(`"data->>%s": $%d`, f, i))
 		fieldsArgs = append(fieldsArgs, v)
 		i++
 	}
