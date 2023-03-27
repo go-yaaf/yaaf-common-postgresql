@@ -668,9 +668,29 @@ func (dbs *PostgresDatabase) BulkDelete(factory EntityFactory, entityIDs []strin
 // return: error
 func (dbs *PostgresDatabase) SetField(factory EntityFactory, entityID string, field string, value any, keys ...string) (err error) {
 
-	fields := make(map[string]any)
-	fields[field] = value
-	return dbs.SetFields(factory, entityID, fields, keys...)
+	//fields := make(map[string]any)
+	//fields[field] = value
+	//return dbs.SetFields(factory, entityID, fields, keys...)
+
+	entity := factory()
+	tblName := tableName(entity.TABLE(), keys...)
+
+	SQL := fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', $1, false) WHERE id = $2`, tblName, field)
+	logger.Debug(SQL)
+
+	args := make([]any, 0)
+	args = append(args, value)
+	args = append(args, entityID)
+
+	if _, err = dbs.pgDb.Exec(SQL, args...); err != nil {
+		return
+	}
+
+	// Get the updated entity and publish the change
+	if updated, fer := dbs.Get(factory, entityID, keys...); fer == nil {
+		dbs.publishChange(UpdateEntity, updated)
+	}
+	return
 }
 
 // SetFields Update some fields of the document in a single transaction
@@ -683,7 +703,6 @@ func (dbs *PostgresDatabase) SetField(factory EntityFactory, entityID string, fi
 func (dbs *PostgresDatabase) SetFields(factory EntityFactory, entityID string, fields map[string]any, keys ...string) (err error) {
 
 	entity := factory()
-
 	tblName := tableName(entity.TABLE(), keys...)
 
 	// Build list of SQL fields and args
