@@ -668,10 +668,6 @@ func (dbs *PostgresDatabase) BulkDelete(factory EntityFactory, entityIDs []strin
 // return: error
 func (dbs *PostgresDatabase) SetField(factory EntityFactory, entityID string, field string, value any, keys ...string) (err error) {
 
-	//fields := make(map[string]any)
-	//fields[field] = value
-	//return dbs.SetFields(factory, entityID, fields, keys...)
-
 	entity := factory()
 	tblName := tableName(entity.TABLE(), keys...)
 
@@ -702,34 +698,12 @@ func (dbs *PostgresDatabase) SetField(factory EntityFactory, entityID string, fi
 // return: error
 func (dbs *PostgresDatabase) SetFields(factory EntityFactory, entityID string, fields map[string]any, keys ...string) (err error) {
 
-	entity := factory()
-	tblName := tableName(entity.TABLE(), keys...)
-
-	// Build list of SQL fields and args
-	fieldsStrings := make([]string, 0, len(fields))
-	fieldsArgs := make([]any, 0, len(fields))
-	i := 1
 	for f, v := range fields {
-		fieldsStrings = append(fieldsStrings, fmt.Sprintf(`"data->>%s": $%d`, f, i))
-		fieldsArgs = append(fieldsArgs, v)
-		i++
+		if er := dbs.SetField(factory, entityID, f, v, keys...); er != nil {
+			return er
+		}
 	}
-
-	fieldsList := strings.Join(fieldsStrings, ",")
-	SQL := fmt.Sprintf(`UPDATE "%s" SET data = data || '{%s}' WHERE id = $%d`, tblName, fieldsList, i)
-	logger.Debug(SQL)
-
-	// append entityID
-	fieldsArgs = append(fieldsArgs, entityID)
-	if _, err = dbs.pgDb.Exec(SQL, fieldsArgs...); err != nil {
-		return
-	}
-
-	// Get the updated entity and publish the change
-	if updated, fer := dbs.Get(factory, entityID, keys...); fer == nil {
-		dbs.publishChange(UpdateEntity, updated)
-	}
-	return
+	return nil
 }
 
 //endregion
