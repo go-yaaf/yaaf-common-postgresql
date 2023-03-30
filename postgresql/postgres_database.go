@@ -7,8 +7,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/go-yaaf/yaaf-common/messaging"
 	"net"
 	"net/url"
+	"reflect"
 	"strings"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 
 type PostgresDatabase struct {
 	pgDb *sql.DB
+	bus  messaging.IMessageBus
 }
 
 const (
@@ -97,6 +100,36 @@ func NewPostgresDatabase(URI string) (dbs database.IDatabase, err error) {
 		return nil, err
 	} else {
 		dbs = &PostgresDatabase{pgDb: db}
+	}
+
+	return
+}
+
+// NewPostgresDatabaseWithMessageBus factory method for database with injected message bus
+//
+// param: URI - represents the database connection string in the format of: postgresql://user:password@host:port/database_name?application_name
+// return: IDatabase instance, error
+func NewPostgresDatabaseWithMessageBus(URI string, bus messaging.IMessageBus) (dbs database.IDatabase, err error) {
+
+	var (
+		driver, connStr string
+		db              *sql.DB
+	)
+
+	// Ensure driver name
+	if driver, connStr, err = convertConnectionString(URI); err != nil {
+		return nil, err
+	}
+
+	// Open connection
+	if db, err = sql.Open(driver, connStr); err != nil {
+		return nil, err
+	}
+
+	if err = db.Ping(); err != nil {
+		return nil, err
+	} else {
+		dbs = &PostgresDatabase{pgDb: db, bus: bus}
 	}
 
 	return
@@ -806,7 +839,30 @@ func (dbs *PostgresDatabase) PurgeTable(table string) (err error) {
 // param: entity - The changed entity
 func (dbs *PostgresDatabase) publishChange(action EntityAction, entity Entity) {
 
-	// TODO: create pub/sub message and publish it on the injected message bug
+	if dbs.bus == nil || entity == nil {
+		return
+	}
+
+	// Set topic in the format of: ENTITY-{Table}-{Key}
+	topic := fmt.Sprintf("%s-%s-%s", messaging.EntityMessageTopic, entity.TABLE(), entity.KEY())
+	addressee := reflect.TypeOf(entity).String()
+	idx := strings.LastIndex(addressee, ".")
+	addressee = addressee[idx+1:]
+
+	if dbs.bus != nil {
+		msg := messaging.EntityMessage{
+			BaseMessage: messaging.BaseMessage{
+				MsgTopic:     topic,
+				MsgOpCode:    int(action),
+				MsgAddressee: addressee,
+				MsgSessionId: entity.ID(),
+			},
+			MsgPayload: entity,
+		}
+		if err := dbs.bus.Publish(&msg); err != nil {
+			logger.Warn("error publishing change: %s", err.Error())
+		}
+	}
 }
 
 // endregion
