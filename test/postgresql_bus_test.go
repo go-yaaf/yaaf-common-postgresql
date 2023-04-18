@@ -128,7 +128,7 @@ func (s *PostgresqlWithBusTestSuite) createSubscriber(bus messaging.IMessageBus)
 	}
 
 	// subscribe
-	if subName, err := bus.Subscribe(messaging.NewEntityMessage, changeLogger, "change-logger", "ENTITY*"); err != nil {
+	if subName, err := bus.Subscribe("change-logger", messaging.NewEntityMessage, changeLogger, "ENTITY*"); err != nil {
 		fmt.Println("error subscribing to bus", err.Error())
 		panic(any(err))
 	} else {
