@@ -122,10 +122,18 @@ func (s *postgresDatabaseQuery) buildOrder() string {
 	}
 	fields := make([]string, 0, l)
 	for _, field := range s.ascOrders {
-		fields = append(fields, fmt.Sprintf("data->>'%s' ASC", field))
+		if field == "id" {
+			fields = append(fields, fmt.Sprintf("id ASC"))
+		} else {
+			fields = append(fields, fmt.Sprintf("data->>'%s' ASC", field))
+		}
 	}
 	for _, field := range s.descOrders {
-		fields = append(fields, fmt.Sprintf("data->>'%s' DESC", field))
+		if field == "id" {
+			fields = append(fields, fmt.Sprintf("id DESC"))
+		} else {
+			fields = append(fields, fmt.Sprintf("data->>'%s' DESC", field))
+		}
 	}
 
 	order := fmt.Sprintf("ORDER BY %s", strings.Join(fields, " , "))
