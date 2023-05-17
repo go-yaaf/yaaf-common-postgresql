@@ -756,7 +756,7 @@ func (dbs *PostgresDatabase) BulkSetFields(factory EntityFactory, field string, 
 	sqlType := dbs.getSqlType(values)
 
 	// Create temp table to map entity to field id
-	tmpTable := fmt.Sprintf("ch%d", time.Now().Unix())
+	tmpTable := fmt.Sprintf("ch%d", time.Now().UnixMilli())
 	createTmp := fmt.Sprintf("create TEMP table %s (id character varying PRIMARY KEY NOT NULL, val %s)", tmpTable, sqlType)
 	if _, err := dbs.pgDb.Exec(createTmp); err != nil {
 		return 0, err
