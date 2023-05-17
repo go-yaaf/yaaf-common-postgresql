@@ -739,6 +739,86 @@ func (dbs *PostgresDatabase) SetFields(factory EntityFactory, entityID string, f
 	return nil
 }
 
+// BulkSetFields Update specific field of multiple entities in a single transaction (eliminates the need to fetch - change - update)
+//
+// param: factory - Entity factory
+// param: field - The field name to update
+// param: values - The map of entity Id to field value
+// param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
+// return: Number of updated entities, error
+func (dbs *PostgresDatabase) BulkSetFields(factory EntityFactory, field string, values map[string]any, keys ...string) (affected int64, error error) {
+
+	if len(values) == 0 {
+		return 0, nil
+	}
+
+	// Determine the type of the field
+	sqlType := dbs.getSqlType(values)
+
+	// Create temp table to map entity to field id
+	tmpTable := fmt.Sprintf("ch%d", time.Now().Unix())
+	createTmp := fmt.Sprintf("create TEMP table %s (id character varying PRIMARY KEY NOT NULL, val %s)", tmpTable, sqlType)
+	if _, err := dbs.pgDb.Exec(createTmp); err != nil {
+		return 0, err
+	}
+
+	// Bulk Insert values
+	valueStrings := make([]string, 0, len(values))
+	valueArgs := make([]any, 0, len(values)*2)
+	i := 0
+	for id, val := range values {
+		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d)", i*2+1, i*2+2))
+		valueArgs = append(valueArgs, id)
+		valueArgs = append(valueArgs, val)
+		i++
+	}
+	SQL := fmt.Sprintf(`INSERT INTO "%s" (id, val) VALUES %s`, tmpTable, strings.Join(valueStrings, ","))
+	if _, err := dbs.pgDb.Exec(SQL, valueArgs...); err != nil {
+		return 0, err
+	}
+
+	// Create bulk update statement
+	entity := factory()
+	tblName := tableName(entity.TABLE(), keys...)
+
+	SQL = fmt.Sprintf("UPDATE %s SET data['%s'] = to_jsonb(%s.val) FROM %s WHERE %s.id = %s.id", tblName, field, tmpTable, tmpTable, tmpTable, tblName)
+
+	// Drop the temp table
+	defer func() {
+		DROP := fmt.Sprintf("DROP TABLE %s", tmpTable)
+		_, _ = dbs.pgDb.Exec(DROP)
+	}()
+
+	// Execute update
+	if result, err := dbs.pgDb.Exec(SQL); err != nil {
+		return 0, err
+	} else {
+		return result.RowsAffected()
+	}
+}
+
+// Get the SQL type of the value
+func (dbs *PostgresDatabase) getSqlType(values map[string]any) string {
+
+	typeName := "string"
+	for _, v := range values {
+		typeName = fmt.Sprintf("%T", v)
+		break
+	}
+	if strings.HasPrefix(typeName, "string") {
+		return "character varying"
+	}
+	if strings.HasPrefix(typeName, "float") {
+		return "double precision"
+	}
+	if strings.HasPrefix(typeName, "bool") {
+		return "boolean"
+	}
+
+	// For all other types (numbers, timestamp, enums) return bigint
+	return "bigint"
+}
+
 //endregion
 
 // region Database Query methods ---------------------------------------------------------------------------------------

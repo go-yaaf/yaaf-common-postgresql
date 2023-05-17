@@ -3,6 +3,7 @@
 package test
 
 import (
+	"fmt"
 	. "github.com/go-yaaf/yaaf-common/entity"
 )
 
@@ -22,10 +23,14 @@ func NewHero() Entity {
 
 func NewHero1(id string, key int, name string) Entity {
 	return &Hero{
-		BaseEntity: BaseEntity{Id: id, CreatedOn: Now(), UpdatedOn: Now()},
+		BaseEntity: BaseEntity{Id: id, CreatedOn: Now() + Timestamp(key), UpdatedOn: Now()},
 		Key:        key,
 		Name:       name,
 	}
+}
+
+func (a Hero) String() string {
+	return fmt.Sprintf("%d [%s] key:%d, name: %s", a.CreatedOn, a.Id, a.Key, a.Name)
 }
 
 var list_of_heroes = []Entity{
