@@ -5,7 +5,6 @@ package postgresql
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"github.com/go-yaaf/yaaf-common/messaging"
 	"net"
@@ -293,7 +292,7 @@ func (dbs *PostgresDatabase) Get(factory EntityFactory, entityID string, keys ..
 		return nil, err
 	}
 
-	if err = json.Unmarshal([]byte(jsonDoc.Data), &result); err != nil {
+	if err = Unmarshal([]byte(jsonDoc.Data), &result); err != nil {
 		return nil, err
 	}
 
@@ -354,7 +353,7 @@ func (dbs *PostgresDatabase) List(factory EntityFactory, entityIDs []string, key
 			return
 		} else {
 			entity := factory()
-			if err = json.Unmarshal([]byte(jsonDoc.Data), &entity); err == nil {
+			if err = Unmarshal([]byte(jsonDoc.Data), &entity); err == nil {
 				list = append(list, entity)
 			}
 		}
@@ -377,7 +376,7 @@ func (dbs *PostgresDatabase) Insert(entity Entity) (added Entity, err error) {
 	SQL := fmt.Sprintf(sqlInsert, tblName)
 	logger.Debug(SQL)
 
-	if data, err = json.Marshal(entity); err != nil {
+	if data, err = Marshal(entity); err != nil {
 		return
 	}
 
@@ -412,7 +411,7 @@ func (dbs *PostgresDatabase) Update(entity Entity) (updated Entity, err error) {
 	SQL := fmt.Sprintf(sqlUpdate, tblName)
 	logger.Debug(SQL)
 
-	if data, err = json.Marshal(entity); err != nil {
+	if data, err = Marshal(entity); err != nil {
 		return
 	}
 
@@ -447,7 +446,7 @@ func (dbs *PostgresDatabase) Upsert(entity Entity) (updated Entity, err error) {
 	SQL := fmt.Sprintf(sqlUpsert, tblName)
 	logger.Debug(SQL)
 
-	if data, err = json.Marshal(entity); err != nil {
+	if data, err = Marshal(entity); err != nil {
 		return
 	}
 
@@ -528,7 +527,7 @@ func (dbs *PostgresDatabase) BulkInsert(entities []Entity) (affected int64, err 
 	for _, entity := range entities {
 		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d)", i*2+1, i*2+2))
 		valueArgs = append(valueArgs, entity.ID())
-		bytes, _ := json.Marshal(entity)
+		bytes, _ := Marshal(entity)
 		valueArgs = append(valueArgs, string(bytes))
 		i++
 	}
@@ -578,7 +577,7 @@ func (dbs *PostgresDatabase) BulkUpdate(entities []Entity) (affected int64, err 
 	for _, entity := range entities {
 		table := tableName(entity.TABLE(), entity.KEY())
 		SQL := fmt.Sprintf(sqlUpdate, table)
-		data, _ := json.Marshal(entity)
+		data, _ := Marshal(entity)
 		if _, err = dbs.pgDb.Exec(SQL, entity.ID(), data); err != nil {
 			_ = tx.Rollback()
 			return 0, err
@@ -622,7 +621,7 @@ func (dbs *PostgresDatabase) BulkUpsert(entities []Entity) (affected int64, err 
 	for _, entity := range entities {
 		table := tableName(entity.TABLE(), entity.KEY())
 		SQL := fmt.Sprintf(sqlUpsert, table)
-		data, _ := json.Marshal(entity)
+		data, _ := Marshal(entity)
 		if _, err = dbs.pgDb.Exec(SQL, entity.ID(), data); err != nil {
 			_ = tx.Rollback()
 			return 0, err
