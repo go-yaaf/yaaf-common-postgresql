@@ -25,6 +25,7 @@ import (
 type PostgresDatabase struct {
 	pgDb *sql.DB
 	bus  messaging.IMessageBus
+	uri  string
 }
 
 const (
@@ -69,7 +70,7 @@ func NewPostgresStore(URI string) (dbs database.IDatastore, err error) {
 	if err = db.Ping(); err != nil {
 		return nil, err
 	} else {
-		dbs = &PostgresDatabase{pgDb: db}
+		dbs = &PostgresDatabase{pgDb: db, uri: URI}
 	}
 	return
 }
@@ -98,7 +99,7 @@ func NewPostgresDatabase(URI string) (dbs database.IDatabase, err error) {
 	if err = db.Ping(); err != nil {
 		return nil, err
 	} else {
-		dbs = &PostgresDatabase{pgDb: db}
+		dbs = &PostgresDatabase{pgDb: db, uri: URI}
 	}
 
 	return
@@ -128,7 +129,7 @@ func NewPostgresDatabaseWithMessageBus(URI string, bus messaging.IMessageBus) (d
 	if err = db.Ping(); err != nil {
 		return nil, err
 	} else {
-		dbs = &PostgresDatabase{pgDb: db, bus: bus}
+		dbs = &PostgresDatabase{pgDb: db, bus: bus, uri: URI}
 	}
 
 	return
@@ -210,6 +211,16 @@ func (dbs *PostgresDatabase) Ping(retries uint, intervalInSeconds uint) error {
 // Close DB and free resources
 func (dbs *PostgresDatabase) Close() error {
 	return dbs.pgDb.Close()
+}
+
+// CloneDatabase Returns a clone (copy) of the database instance
+func (dbs *PostgresDatabase) CloneDatabase() (database.IDatabase, error) {
+	return NewPostgresDatabaseWithMessageBus(dbs.uri, dbs.bus)
+}
+
+// CloneDatastore Returns a clone (copy) of the database instance
+func (dbs *PostgresDatabase) CloneDatastore() (database.IDatastore, error) {
+	return NewPostgresStore(dbs.uri)
 }
 
 // Resolve table name from entity class name and shard keys
