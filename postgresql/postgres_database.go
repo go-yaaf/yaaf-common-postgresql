@@ -891,26 +891,45 @@ func (dbs *PostgresDatabase) ExecuteSQL(sql string, args ...any) (int64, error) 
 
 // ExecuteQuery Execute native SQL query
 func (dbs *PostgresDatabase) ExecuteQuery(sql string, args ...any) ([]Json, error) {
-	/*
-		rows, err := dbs.pgDb.Query(sql, args...)
-		if err != nil {
-			return nil, err
-		}
-	*/
+
+	rows, err := dbs.pgDb.Query(sql, args...)
+	if err != nil {
+		return nil, err
+	}
 
 	result := make([]Json, 0)
-	//for {
-	//	if !rows.Next() {
-	//		return result, nil
-	//	}
-	//	cols, er := rows.Columns()
-	//	if er != nil {
-	//		return nil, er
-	//	}
-	//
-	//	rows.Scan()
-	//	rows.Columns()
-	//}
+	for {
+		if !rows.Next() {
+			break
+		}
+
+		cols, er := rows.ColumnTypes()
+		if er != nil {
+			return nil, er
+		}
+
+		//for _, t := range cols {
+		//	st := t.ScanType()
+		//	fmt.Println(t.Name(), t.DatabaseTypeName(), st.Name())
+		//}
+
+		values := make([]any, len(cols))
+		for i, _ := range cols {
+			values[i] = new(string)
+		}
+
+		if er = rows.Scan(values...); er != nil {
+			_ = rows.Close()
+			return nil, er
+		}
+
+		entry := Json{}
+		for i, col := range cols {
+			entry[col.Name()] = values[i]
+		}
+		result = append(result, entry)
+	}
+
 	return result, nil
 }
 
