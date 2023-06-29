@@ -876,10 +876,10 @@ func (dbs *PostgresDatabase) ExecuteDDL(ddl map[string][]string) (err error) {
 // param: sql - The SQL command to execute
 // param: args - Statement arguments
 // return: Number of affected records, error
-func (dbs *PostgresDatabase) ExecuteSQL(sql string, args ...any) (affected int64, err error) {
-	if result, er := dbs.pgDb.Exec(sql, args...); er != nil {
+func (dbs *PostgresDatabase) ExecuteSQL(sql string, args ...any) (int64, error) {
+	if result, err := dbs.pgDb.Exec(sql, args...); err != nil {
 		logger.Debug("%s error: %s", sql, err.Error())
-		return 0, er
+		return 0, err
 	} else {
 		if a, er := result.RowsAffected(); er != nil {
 			return 0, er
@@ -887,6 +887,31 @@ func (dbs *PostgresDatabase) ExecuteSQL(sql string, args ...any) (affected int64
 			return a, nil
 		}
 	}
+}
+
+// ExecuteQuery Execute native SQL query
+func (dbs *PostgresDatabase) ExecuteQuery(sql string, args ...any) ([]Json, error) {
+	/*
+		rows, err := dbs.pgDb.Query(sql, args...)
+		if err != nil {
+			return nil, err
+		}
+	*/
+
+	result := make([]Json, 0)
+	//for {
+	//	if !rows.Next() {
+	//		return result, nil
+	//	}
+	//	cols, er := rows.Columns()
+	//	if er != nil {
+	//		return nil, er
+	//	}
+	//
+	//	rows.Scan()
+	//	rows.Columns()
+	//}
+	return result, nil
 }
 
 // DropTable Drop table and indexes
