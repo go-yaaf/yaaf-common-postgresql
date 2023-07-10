@@ -130,10 +130,9 @@ func (s *postgresDatabaseQuery) List(entityIDs []string, keys ...string) (out []
 // On each record, after the marshaling the result shall be transformed via the query callback chain
 func (s *postgresDatabaseQuery) Find(keys ...string) (out []Entity, total int64, err error) {
 
-	sql, args := s.buildStatement(keys...)
-	logger.Debug(sql)
+	sqlState, args := s.buildStatement(keys...)
 
-	statement, e := s.db.pgDb.Prepare(sql)
+	statement, e := s.db.pgDb.Prepare(sqlState)
 	if e != nil {
 		return nil, 0, e
 	}
@@ -171,6 +170,85 @@ func (s *postgresDatabaseQuery) Find(keys ...string) (out []Entity, total int64,
 	// Get the rows count
 	total, err = s.Count(keys...)
 	return
+}
+
+// Select is similar to find but with ability to retrieve specific fields
+func (s *postgresDatabaseQuery) Select(fields ...string) ([]Json, error) {
+
+	// Build the SQL select
+	tblName := tableName(s.factory().TABLE())
+
+	// Build the WHERE clause
+	where, args := s.buildCriteria()
+	order := s.buildOrder()
+	limit := s.buildLimit()
+
+	SQL := fmt.Sprintf(`SELECT id FROM "%s" %s %s %s`, tblName, where, order, limit)
+
+	if len(fields) > 0 {
+		fieldArr := make([]string, 0)
+		for i, field := range fields {
+			if strings.Contains(field, " as") {
+				fieldArr = append(fieldArr, field)
+			} else {
+				fieldArr = append(fieldArr, fmt.Sprintf("%s as field%d", field, i))
+			}
+		}
+		selectFields := strings.Join(fieldArr, ",")
+		SQL = fmt.Sprintf(`SELECT %s FROM "%s" %s %s %s`, selectFields, tblName, where, order, limit)
+	}
+
+	statement, e := s.db.pgDb.Prepare(SQL)
+	if e != nil {
+		return nil, e
+	}
+
+	defer func() {
+		if statement != nil {
+			_ = statement.Close()
+		}
+	}()
+
+	// Execute the query
+	rows, fe := statement.Query(args...)
+	if fe != nil {
+		if rows != nil {
+			_ = rows.Close()
+		}
+		return nil, e
+	}
+
+	result := make([]Json, 0)
+	for {
+		if !rows.Next() {
+			break
+		}
+
+		cols, er := rows.ColumnTypes()
+		if er != nil {
+			return nil, er
+		}
+
+		values := make([]any, len(cols))
+		for i, _ := range cols {
+			values[i] = new(string)
+		}
+
+		if er = rows.Scan(values...); er != nil {
+			_ = rows.Close()
+			return nil, er
+		}
+
+		entry := Json{}
+		for i, col := range cols {
+			entry[col.Name()] = values[i]
+		}
+		result = append(result, entry)
+	}
+
+	_ = rows.Close()
+
+	return result, nil
 }
 
 // Count Execute query based on the criteria, order and pagination
@@ -255,10 +333,9 @@ func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (map[in
 	tblName := tableName(s.factory().TABLE(), keys...)
 	args := make([]any, 0)
 	where, args := s.buildCriteria()
-	sql := fmt.Sprintf(`SELECT count(*) cnt , data->>'%s' grp FROM "%s" %s GROUP BY grp`, field, tblName, where)
-	logger.Debug(sql)
+	SQL := fmt.Sprintf(`SELECT count(*) cnt , data->>'%s' grp FROM "%s" %s GROUP BY grp`, field, tblName, where)
 
-	statement, e := s.db.pgDb.Prepare(sql)
+	statement, e := s.db.pgDb.Prepare(SQL)
 	if e != nil {
 		return result, 0, e
 	}
@@ -305,10 +382,8 @@ func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ..
 	if function != "count" {
 		aggr = fmt.Sprintf("(data->>'%s')::FLOAT", field)
 	}
-	sql := fmt.Sprintf(`SELECT %s(%s) cnt , data->>'%s' grp FROM "%s" %s GROUP BY grp`, function, aggr, field, tblName, where)
-	logger.Debug(sql)
-
-	statement, e := s.db.pgDb.Prepare(sql)
+	SQL := fmt.Sprintf(`SELECT %s(%s) cnt , data->>'%s' grp FROM "%s" %s GROUP BY grp`, function, aggr, field, tblName, where)
+	statement, e := s.db.pgDb.Prepare(SQL)
 	if e != nil {
 		return result, e
 	}
@@ -370,14 +445,12 @@ func (s *postgresDatabaseQuery) Histogram(field, function, timeField string, int
 		aggr = fmt.Sprintf("(data->>'%s')::FLOAT", field)
 	}
 
-	sql := fmt.Sprintf(
+	SQL := fmt.Sprintf(
 		`SELECT %s(%s) cnt, 
 				date_trunc('%s', to_timestamp((data->>'%s')::bigint / 1000)) dp 
 				FROM "%s" %s GROUP BY dp ORDER BY dp`, function, aggr, dp, timeField, tblName, where)
 
-	logger.Debug(sql)
-
-	statement, e := s.db.pgDb.Prepare(sql)
+	statement, e := s.db.pgDb.Prepare(SQL)
 	if e != nil {
 		return result, 0, e
 	}
@@ -442,14 +515,12 @@ func (s *postgresDatabaseQuery) Histogram2D(field, function, dim, timeField stri
 		aggr = fmt.Sprintf("(data->>'%s')::FLOAT", field)
 	}
 
-	sql := fmt.Sprintf(
+	SQL := fmt.Sprintf(
 		`SELECT %s(%s) cnt, (data->>'%s') dim,
 				date_trunc('%s', to_timestamp((data->>'%s')::bigint / 1000)) dp 
 				FROM "%s" %s GROUP BY dp, dim ORDER BY dp`, function, aggr, dim, dp, timeField, tblName, where)
 
-	logger.Debug(sql)
-
-	statement, e := s.db.pgDb.Prepare(sql)
+	statement, e := s.db.pgDb.Prepare(SQL)
 	if e != nil {
 		return result, 0, e
 	}
@@ -505,10 +576,8 @@ func (s *postgresDatabaseQuery) FindSingle(keys ...string) (entity Entity, err e
 func (s *postgresDatabaseQuery) GetMap(keys ...string) (out map[string]Entity, err error) {
 	out = make(map[string]Entity)
 
-	sql, args := s.buildStatement(keys...)
-	logger.Debug(sql)
-
-	statement, e := s.db.pgDb.Prepare(sql)
+	SQL, args := s.buildStatement(keys...)
+	statement, e := s.db.pgDb.Prepare(SQL)
 	if e != nil {
 		return nil, e
 	}
@@ -550,10 +619,8 @@ func (s *postgresDatabaseQuery) GetIDs(keys ...string) (out []string, err error)
 
 	out = make([]string, 0)
 
-	sql, args := s.buildIdStatement(keys...)
-	logger.Debug(sql)
-
-	statement, e := s.db.pgDb.Prepare(sql)
+	SQL, args := s.buildIdStatement(keys...)
+	statement, e := s.db.pgDb.Prepare(SQL)
 	if e != nil {
 		return nil, e
 	}
@@ -593,7 +660,6 @@ func (s *postgresDatabaseQuery) Delete(keys ...string) (total int64, err error) 
 
 	// Build the SQL
 	SQL := fmt.Sprintf(`DELETE FROM "%s" %s %s`, tblName, where, limit)
-	logger.Debug(SQL)
 
 	if res, ser := s.db.pgDb.Exec(SQL, args...); err != nil {
 		return 0, ser
@@ -636,7 +702,6 @@ func (s *postgresDatabaseQuery) SetFields(fields map[string]any, keys ...string)
 
 	allArgs = append(allArgs, args)
 	SQL := fmt.Sprintf(`UPDATE "%s" SET data = data || '{%s}' %s`, tblName, fieldsList, where)
-	logger.Debug(SQL)
 
 	if res, er := s.db.pgDb.Exec(SQL, allArgs...); er != nil {
 		return 0, err
