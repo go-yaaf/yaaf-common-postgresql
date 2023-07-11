@@ -255,10 +255,9 @@ func (s *postgresDatabaseQuery) Select(fields ...string) ([]Json, error) {
 // returns only the count of matching rows
 func (s *postgresDatabaseQuery) Count(keys ...string) (total int64, err error) {
 
-	sql, args := s.buildCountStatement("", "count", keys...)
-	logger.Debug(sql)
+	SQL, args := s.buildCountStatement("", "count", keys...)
 
-	statement, e := s.db.pgDb.Prepare(sql)
+	statement, e := s.db.pgDb.Prepare(SQL)
 	if e != nil {
 		return 0, e
 	}
@@ -560,16 +559,53 @@ func (s *postgresDatabaseQuery) Histogram2D(field, function, dim, timeField stri
 // After the marshaling the result shall be transformed via the query callback chain
 func (s *postgresDatabaseQuery) FindSingle(keys ...string) (entity Entity, err error) {
 
+	//s.limit = 1
+	//if list, _, fe := s.Find(keys...); fe != nil {
+	//	return nil, fe
+	//} else {
+	//	if len(list) == 0 {
+	//		return nil, fmt.Errorf("not found")
+	//	} else {
+	//		return list[0], nil
+	//	}
+	//}
+
 	s.limit = 1
-	if list, _, fe := s.Find(keys...); fe != nil {
-		return nil, fe
-	} else {
-		if len(list) == 0 {
-			return nil, fmt.Errorf("not found")
-		} else {
-			return list[0], nil
-		}
+	sqlState, args := s.buildStatement(keys...)
+
+	statement, e := s.db.pgDb.Prepare(sqlState)
+	if e != nil {
+		return nil, e
 	}
+
+	defer func() {
+		if statement != nil {
+			_ = statement.Close()
+		}
+	}()
+
+	// Execute the query
+	rows, fe := statement.Query(args...)
+	if fe != nil {
+		if rows != nil {
+			_ = rows.Close()
+		}
+		return nil, e
+	}
+
+	// Scan first row by row and fetch entities
+	if rows.Next() {
+		if ent, fer := s.unMarshal(s.scanRow(rows)); fer != nil {
+			err = fer
+		} else {
+			entity = s.processCallbacks(ent)
+		}
+	} else {
+		err = fmt.Errorf("not found")
+	}
+
+	_ = rows.Close()
+	return
 }
 
 // GetMap Execute query based on the criteria, order and pagination and return the results as a map of id->Entity
