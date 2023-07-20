@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/go-yaaf/yaaf-common v1.2.69
-	github.com/go-yaaf/yaaf-common-redis v1.2.27
+	github.com/go-yaaf/yaaf-common-redis v1.2.28
 	github.com/lib/pq v1.10.9
 	github.com/stretchr/testify v1.8.1
 )
