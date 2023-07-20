@@ -285,7 +285,6 @@ func (dbs *PostgresDatabase) Get(factory EntityFactory, entityID string, keys ..
 	}
 
 	SQL := fmt.Sprintf(`SELECT id, data FROM "%s" WHERE id = $1`, tableName(result.TABLE(), keys...))
-	logger.Debug(SQL)
 
 	if rows, err = dbs.pgDb.Query(SQL, entityID); err != nil {
 		return nil, err
@@ -319,7 +318,6 @@ func (dbs *PostgresDatabase) Get(factory EntityFactory, entityID string, keys ..
 func (dbs *PostgresDatabase) Exists(factory EntityFactory, entityID string, keys ...string) (result bool, err error) {
 
 	SQL := fmt.Sprintf(`SELECT id FROM "%s" WHERE id = $1`, tableName(factory().TABLE(), keys...))
-	logger.Debug(SQL)
 
 	if rows, err := dbs.pgDb.Query(SQL, entityID); err != nil {
 		return false, err
@@ -351,8 +349,6 @@ func (dbs *PostgresDatabase) List(factory EntityFactory, entityIDs []string, key
 
 	table := tableName(factory().TABLE(), keys...)
 	SQL := fmt.Sprintf(`SELECT id, data FROM "%s" WHERE id = ANY($1)`, table)
-	logger.Debug(SQL)
-
 	if rows, err = dbs.pgDb.Query(SQL, pq.Array(entityIDs)); err != nil {
 		return
 	}
@@ -385,8 +381,6 @@ func (dbs *PostgresDatabase) Insert(entity Entity) (added Entity, err error) {
 	tblName := tableName(entity.TABLE(), entity.KEY())
 
 	SQL := fmt.Sprintf(sqlInsert, tblName)
-	logger.Debug(SQL)
-
 	if data, err = Marshal(entity); err != nil {
 		return
 	}
@@ -420,8 +414,6 @@ func (dbs *PostgresDatabase) Update(entity Entity) (updated Entity, err error) {
 
 	tblName := tableName(entity.TABLE(), entity.KEY())
 	SQL := fmt.Sprintf(sqlUpdate, tblName)
-	logger.Debug(SQL)
-
 	if data, err = Marshal(entity); err != nil {
 		return
 	}
@@ -455,8 +447,6 @@ func (dbs *PostgresDatabase) Upsert(entity Entity) (updated Entity, err error) {
 
 	tblName := tableName(entity.TABLE(), entity.KEY())
 	SQL := fmt.Sprintf(sqlUpsert, tblName)
-	logger.Debug(SQL)
-
 	if data, err = Marshal(entity); err != nil {
 		return
 	}
@@ -499,8 +489,6 @@ func (dbs *PostgresDatabase) Delete(factory EntityFactory, entityID string, keys
 
 	tblName := tableName(entity.TABLE(), keys...)
 	SQL := fmt.Sprintf(sqlDelete, tblName)
-	logger.Debug(SQL)
-
 	if result, err = dbs.pgDb.Exec(SQL, entityID); err != nil {
 		return
 	}
@@ -543,7 +531,6 @@ func (dbs *PostgresDatabase) BulkInsert(entities []Entity) (affected int64, err 
 		i++
 	}
 	SQL := fmt.Sprintf(`INSERT INTO "%s" (id, data) VALUES %s`, table, strings.Join(valueStrings, ","))
-	logger.Debug(SQL)
 
 	var (
 		result sql.Result
@@ -678,7 +665,6 @@ func (dbs *PostgresDatabase) BulkDelete(factory EntityFactory, entityIDs []strin
 	}
 
 	SQL := fmt.Sprintf(sqlBulkDelete, tblName)
-	logger.Debug(SQL)
 
 	if result, err = dbs.pgDb.Exec(SQL, pq.Array(entityIDs)); err != nil {
 		return
@@ -715,7 +701,6 @@ func (dbs *PostgresDatabase) SetField(factory EntityFactory, entityID string, fi
 	tblName := tableName(entity.TABLE(), keys...)
 
 	SQL := fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', $1, false) WHERE id = $2`, tblName, field)
-	logger.Debug(SQL)
 
 	args := make([]any, 0)
 	args = append(args, value)
@@ -857,13 +842,13 @@ func (dbs *PostgresDatabase) ExecuteDDL(ddl map[string][]string) (err error) {
 
 		SQL := fmt.Sprintf(ddlCreateTable, table)
 		if _, err = dbs.pgDb.Exec(SQL); err != nil {
-			logger.Debug("%s error: %s", SQL, err.Error())
+			logger.Error("%s error: %s", SQL, err.Error())
 			return
 		}
 		for _, field := range fields {
-			sql := fmt.Sprintf(ddlCreateIndex, table, field, table, field)
-			if _, err = dbs.pgDb.Exec(sql); err != nil {
-				logger.Debug("%s error: %s", sql, err.Error())
+			SQL = fmt.Sprintf(ddlCreateIndex, table, field, table, field)
+			if _, err = dbs.pgDb.Exec(SQL); err != nil {
+				logger.Error("%s error: %s", SQL, err.Error())
 				return
 			}
 		}
@@ -878,7 +863,7 @@ func (dbs *PostgresDatabase) ExecuteDDL(ddl map[string][]string) (err error) {
 // return: Number of affected records, error
 func (dbs *PostgresDatabase) ExecuteSQL(sql string, args ...any) (int64, error) {
 	if result, err := dbs.pgDb.Exec(sql, args...); err != nil {
-		logger.Debug("%s error: %s", sql, err.Error())
+		logger.Error("%s error: %s", sql, err.Error())
 		return 0, err
 	} else {
 		if a, er := result.RowsAffected(); er != nil {
@@ -940,7 +925,7 @@ func (dbs *PostgresDatabase) ExecuteQuery(sql string, args ...any) ([]Json, erro
 func (dbs *PostgresDatabase) DropTable(table string) (err error) {
 	SQL := fmt.Sprintf(ddlDropTable, table)
 	if _, err = dbs.pgDb.Exec(SQL); err != nil {
-		logger.Debug("%s error: %s", SQL, err.Error())
+		logger.Error("%s error: %s", SQL, err.Error())
 	}
 	return
 }
@@ -952,7 +937,7 @@ func (dbs *PostgresDatabase) DropTable(table string) (err error) {
 func (dbs *PostgresDatabase) PurgeTable(table string) (err error) {
 	SQL := fmt.Sprintf(ddlPurgeTable, table)
 	if _, err = dbs.pgDb.Exec(SQL); err != nil {
-		logger.Debug("%s error: %s", SQL, err.Error())
+		logger.Error("%s error: %s", SQL, err.Error())
 	}
 	return
 }

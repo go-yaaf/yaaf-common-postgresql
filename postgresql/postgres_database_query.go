@@ -11,7 +11,6 @@ import (
 
 	"github.com/go-yaaf/yaaf-common/database"
 	. "github.com/go-yaaf/yaaf-common/entity"
-	"github.com/go-yaaf/yaaf-common/logger"
 	"github.com/go-yaaf/yaaf-common/utils/collections"
 )
 
@@ -292,10 +291,9 @@ func (s *postgresDatabaseQuery) Aggregation(field, function string, keys ...stri
 	if !collections.Include(functions, function) {
 		return 0, fmt.Errorf("function %s not supported", function)
 	}
-	sql, args := s.buildCountStatement(field, function, keys...)
-	logger.Debug(sql)
+	SQL, args := s.buildCountStatement(field, function, keys...)
 
-	statement, e := s.db.pgDb.Prepare(sql)
+	statement, e := s.db.pgDb.Prepare(SQL)
 	if e != nil {
 		return 0, e
 	}
