@@ -6,7 +6,6 @@ package postgresql
 import (
 	"database/sql"
 	"fmt"
-	"github.com/go-yaaf/yaaf-common/messaging"
 	"net"
 	"net/url"
 	"reflect"
@@ -18,6 +17,7 @@ import (
 	"github.com/go-yaaf/yaaf-common/database"
 	. "github.com/go-yaaf/yaaf-common/entity"
 	"github.com/go-yaaf/yaaf-common/logger"
+	"github.com/go-yaaf/yaaf-common/messaging"
 )
 
 // region Database store definitions -----------------------------------------------------------------------------------
