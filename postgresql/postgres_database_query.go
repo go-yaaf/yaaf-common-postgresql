@@ -70,7 +70,7 @@ func (s *postgresDatabaseQuery) MatchAny(filters ...database.QueryFilter) databa
 			list = append(list, filter)
 		}
 	}
-	s.anyFilters = append(s.allFilters, list)
+	s.anyFilters = append(s.anyFilters, list)
 	return s
 }
 
@@ -229,9 +229,12 @@ func (s *postgresDatabaseQuery) Select(fields ...string) ([]Json, error) {
 		}
 
 		values := make([]any, len(cols))
-		for i, _ := range cols {
+		for i := 0; i < len(cols); i++ {
 			values[i] = new(string)
 		}
+		//for i, _ := range cols {
+		//	values[i] = new(string)
+		//}
 
 		if er = rows.Scan(values...); er != nil {
 			_ = rows.Close()
