@@ -1006,6 +1006,12 @@ func (dbs *PostgresDatabase) CreateEntityIndex(factory EntityFactory, key string
 	return key, fmt.Errorf("not implemented")
 }
 
+// ListIndices returns a list of all indices matching the pattern
+func (dbs *PostgresDatabase) ListIndices(pattern string) (map[string]int, error) {
+	// TODO: Add implementation
+	return nil, fmt.Errorf("not implemented")
+}
+
 // DropIndex drops an index
 func (dbs *PostgresDatabase) DropIndex(indexName string) (ack bool, err error) {
 	// TODO: Add implementation
