@@ -478,11 +478,11 @@ func (s *postgresDatabaseQuery) Histogram(field, function, timeField string, int
 // Histogram2D returns a two-dimensional time series data points based on the time field, supported intervals: Minute, Hour, Day, week, month
 // the data point is a calculation of the provided function on the selected field
 // supported functions: count : avg, sum, min, max
-func (s *postgresDatabaseQuery) Histogram2D(field, function, dim, timeField string, interval time.Duration, keys ...string) (map[Timestamp]map[int]float64, float64, error) {
+func (s *postgresDatabaseQuery) Histogram2D(field, function, dim, timeField string, interval time.Duration, keys ...string) (map[Timestamp]map[any]Tuple[int64, float64], float64, error) {
 	if !collections.Include(functions, function) {
 		return nil, 0, fmt.Errorf("function %s not supported", function)
 	}
-	result := make(map[Timestamp]map[int]float64)
+	result := make(map[Timestamp]map[any]Tuple[int64, float64])
 
 	// Build the group count statement
 	tblName := tableName(s.factory().TABLE(), keys...)
@@ -529,9 +529,9 @@ func (s *postgresDatabaseQuery) Histogram2D(field, function, dim, timeField stri
 			ts = Timestamp(rTime.Unix() * 1000)
 
 			if _, ok := result[ts]; !ok {
-				result[ts] = make(map[int]float64)
+				result[ts] = make(map[any]Tuple[int64, float64])
 			}
-			result[ts][dimVal] = count
+			result[ts][dimVal] = Tuple[int64, float64]{Key: int64(count), Value: count}
 			total += count
 		}
 	}
