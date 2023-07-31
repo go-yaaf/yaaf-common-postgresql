@@ -325,9 +325,9 @@ func (s *postgresDatabaseQuery) Aggregation(field, function string, keys ...stri
 }
 
 // GroupCount Execute the query based on the criteria, grouped by field and return count per group
-func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (map[int]int64, int64, error) {
+func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (map[any]int64, int64, error) {
 
-	result := make(map[int]int64)
+	result := make(map[any]int64)
 
 	// Build the group count statement
 	tblName := tableName(s.factory().TABLE(), keys...)
