@@ -365,13 +365,16 @@ func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (map[in
 }
 
 // GroupAggregation Execute the query based on the criteria, order and pagination and return the aggregated value per group
+// the data point is a calculation of the provided function on the selected field, each data point includes the number of documents and the calculated value
+// the total is the sum of all calculated values in all the buckets
 // supported functions: count : avg, sum, min, max
-func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ...string) (map[any]float64, error) {
+func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ...string) (map[any]Tuple[int64, float64], float64, error) {
 
 	if !collections.Include(functions, function) {
-		return nil, fmt.Errorf("function %s not supported", function)
+		return nil, 0, fmt.Errorf("function %s not supported", function)
 	}
-	result := make(map[any]float64)
+	result := make(map[any]Tuple[int64, float64])
+	total := float64(0)
 
 	// Build the group count statement
 	tblName := tableName(s.factory().TABLE(), keys...)
@@ -385,7 +388,7 @@ func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ..
 	SQL := fmt.Sprintf(`SELECT %s(%s) cnt , data->>'%s' grp FROM "%s" %s GROUP BY grp`, function, aggr, field, tblName, where)
 	statement, e := s.db.pgDb.Prepare(SQL)
 	if e != nil {
-		return result, e
+		return result, total, e
 	}
 
 	// Execute the query
@@ -397,7 +400,7 @@ func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ..
 	}()
 
 	if err != nil {
-		return result, err
+		return result, total, err
 	}
 
 	var count float64
@@ -405,10 +408,11 @@ func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ..
 
 	for rows.Next() {
 		if er := rows.Scan(&count, &group); er == nil {
-			result[group] = count
+			result[group] = Tuple[int64, float64]{Key: int64(count), Value: count}
+			total += count
 		}
 	}
-	return result, nil
+	return result, total, nil
 }
 
 // Histogram returns a time series data points based on the time field, supported intervals: Minute, Hour, Day, week, month
