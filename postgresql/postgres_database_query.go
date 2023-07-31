@@ -412,13 +412,15 @@ func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ..
 }
 
 // Histogram returns a time series data points based on the time field, supported intervals: Minute, Hour, Day, week, month
+// the data point is a calculation of the provided function on the selected field, each data point includes the number of documents and the calculated value
+// the total is the sum of all calculated values in all the buckets
 // supported functions: count : avg, sum, min, max
-func (s *postgresDatabaseQuery) Histogram(field, function, timeField string, interval time.Duration, keys ...string) (map[Timestamp]float64, float64, error) {
+func (s *postgresDatabaseQuery) Histogram(field, function, timeField string, interval time.Duration, keys ...string) (map[Timestamp]Tuple[int64, float64], float64, error) {
 
 	if !collections.Include(functions, function) {
 		return nil, 0, fmt.Errorf("function %s not supported", function)
 	}
-	result := make(map[Timestamp]float64)
+	result := make(map[Timestamp]Tuple[int64, float64])
 
 	// Build the group count statement
 	tblName := tableName(s.factory().TABLE(), keys...)
@@ -426,19 +428,7 @@ func (s *postgresDatabaseQuery) Histogram(field, function, timeField string, int
 	where, args := s.buildCriteria()
 
 	// calculate date part
-	dp := "minute"
-	switch interval {
-	case time.Minute:
-		dp = "minute"
-	case time.Hour:
-		dp = "hour"
-	case time.Hour * 24:
-		dp = "day"
-	case time.Hour * 24 * 7:
-		dp = "week"
-	case time.Hour * 24 * 30:
-		dp = "month"
-	}
+	dp := s.calculateDatePart(interval)
 
 	aggr := "*"
 	if function != "count" {
@@ -474,7 +464,7 @@ func (s *postgresDatabaseQuery) Histogram(field, function, timeField string, int
 	for rows.Next() {
 		if er := rows.Scan(&count, &rTime); er == nil {
 			ts = Timestamp(rTime.Unix() * 1000)
-			result[ts] = count
+			result[ts] = Tuple[int64, float64]{Key: int64(count), Value: count}
 			total += count
 		}
 	}
@@ -496,19 +486,7 @@ func (s *postgresDatabaseQuery) Histogram2D(field, function, dim, timeField stri
 	where, args := s.buildCriteria()
 
 	// calculate date part
-	dp := "minute"
-	switch interval {
-	case time.Minute:
-		dp = "minute"
-	case time.Hour:
-		dp = "hour"
-	case time.Hour * 24:
-		dp = "day"
-	case time.Hour * 24 * 7:
-		dp = "week"
-	case time.Hour * 24 * 30:
-		dp = "month"
-	}
+	dp := s.calculateDatePart(interval)
 
 	aggr := "*"
 	if function != "count" {
@@ -559,17 +537,6 @@ func (s *postgresDatabaseQuery) Histogram2D(field, function, dim, timeField stri
 // FindSingle Execute query based on the where criteria to get a single (the first) result
 // After the marshaling the result shall be transformed via the query callback chain
 func (s *postgresDatabaseQuery) FindSingle(keys ...string) (entity Entity, err error) {
-
-	//s.limit = 1
-	//if list, _, fe := s.Find(keys...); fe != nil {
-	//	return nil, fe
-	//} else {
-	//	if len(list) == 0 {
-	//		return nil, fmt.Errorf("not found")
-	//	} else {
-	//		return list[0], nil
-	//	}
-	//}
 
 	s.limit = 1
 	sqlState, args := s.buildStatement(keys...)
@@ -811,6 +778,26 @@ func (s *postgresDatabaseQuery) processCallbacks(in Entity) (out Entity) {
 		}
 	}
 	return
+}
+
+// Calculate postgres specific date part from time Duration
+func (s *postgresDatabaseQuery) calculateDatePart(interval time.Duration) string {
+
+	// calculate date part
+	dp := "minute"
+	switch interval {
+	case time.Minute:
+		dp = "minute"
+	case time.Hour:
+		dp = "hour"
+	case time.Hour * 24:
+		dp = "day"
+	case time.Hour * 24 * 7:
+		dp = "week"
+	case time.Hour * 24 * 30:
+		dp = "month"
+	}
+	return dp
 }
 
 // endregion
