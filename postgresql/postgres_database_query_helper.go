@@ -100,6 +100,12 @@ func (s *postgresDatabaseQuery) buildCriteria() (where string, args []any) {
 			}
 		}
 
+		// If range is defined, add it to the filters
+		if len(s.rangeField) > 0 {
+			rangeFilter := []database.QueryFilter{database.F(s.rangeField).Between(s.rangeFrom, s.rangeTo)}
+			s.allFilters = append(s.allFilters, rangeFilter)
+		}
+
 		if len(orParts) > 0 {
 			orConditions := fmt.Sprintf("(%s)", strings.Join(orParts, " OR "))
 			parts = append(parts, orConditions)

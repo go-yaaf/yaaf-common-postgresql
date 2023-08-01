@@ -19,15 +19,18 @@ var functions = []string{"count", "avg", "sum", "min", "max"}
 // region postgres query internal structure ----------------------------------------------------------------------------
 
 type postgresDatabaseQuery struct {
-	db         *PostgresDatabase
-	factory    EntityFactory
-	allFilters [][]database.QueryFilter
-	anyFilters [][]database.QueryFilter
-	ascOrders  []string
-	descOrders []string
-	callbacks  []func(in Entity) Entity
-	page       int
-	limit      int
+	db         *PostgresDatabase        // A reference to the underlying IDatabase
+	factory    EntityFactory            // The entity factory method
+	allFilters [][]database.QueryFilter // List of lists of AND filters
+	anyFilters [][]database.QueryFilter // List of lists of OR filters
+	ascOrders  []any                    // List of fields for ASC order
+	descOrders []any                    // List of fields for DESC order
+	callbacks  []func(in Entity) Entity // List of entity transformation callback functions
+	page       int                      // Page number (for pagination)
+	limit      int                      // Page size: how many results in a page (for pagination)
+	rangeField string                   // Field name for range filter (must be timestamp field)
+	rangeFrom  Timestamp                // Start timestamp for range filter
+	rangeTo    Timestamp                // End timestamp for range filter
 }
 
 // endregion
@@ -47,6 +50,14 @@ func (s *postgresDatabaseQuery) Filter(filter database.QueryFilter) database.IQu
 	if filter.IsActive() {
 		s.allFilters = append(s.allFilters, []database.QueryFilter{filter})
 	}
+	return s
+}
+
+// Range add time frame filter on specific time field
+func (s *postgresDatabaseQuery) Range(field string, from Timestamp, to Timestamp) database.IQuery {
+	s.rangeField = field
+	s.rangeFrom = from
+	s.rangeTo = to
 	return s
 }
 
