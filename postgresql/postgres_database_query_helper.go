@@ -174,7 +174,8 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 	// Determine the field name and extract operator
 	fieldName := qf.GetField()
 	if qf.GetField() != "id" {
-		fieldName = fmt.Sprintf("data->>'%s'", qf.GetField())
+		//fieldName = fmt.Sprintf("data->>'%s'", qf.GetField())
+		fieldName = s.getCastField(qf)
 	}
 
 	switch qf.GetOperator() {
@@ -265,13 +266,28 @@ func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.Q
 	*/
 }
 
-// Build filter for strings
-//func createStringsList(values []any) string {
-//	list := make([]string, 0)
-//	for _, v := range values {
-//		list = append(list, fmt.Sprintf("'%v'", v))
-//	}
-//	return strings.Join(list, ",")
-//}
+// Build the cast
+func (s *postgresDatabaseQuery) getCastField(qf database.QueryFilter) (result string) {
+	result = fmt.Sprintf("data->>'%s'", qf.GetField())
+
+	values := qf.GetValues()
+	if len(values) == 0 {
+		return
+	}
+
+	switch v := values[0].(type) {
+	case int:
+		result = fmt.Sprintf("%v", v)
+		return fmt.Sprintf("(data->>'%s')::BIGINT", qf.GetField())
+	case uint:
+		return fmt.Sprintf("(data->>'%s')::BIGINT", qf.GetField())
+	case float32:
+		return fmt.Sprintf("(data->>'%s')::FLOAT", qf.GetField())
+	case float64:
+		return fmt.Sprintf("(data->>'%s')::FLOAT", qf.GetField())
+	default:
+		return fmt.Sprintf("data->>'%s'", qf.GetField())
+	}
+}
 
 // endregion
