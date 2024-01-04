@@ -300,12 +300,12 @@ func (s *postgresDatabaseQuery) Count(keys ...string) (total int64, err error) {
 
 // Aggregation Execute the query based on the criteria, order and pagination and return the provided aggregation function on the field
 // supported functions: count ,avg, sum, min, max
-func (s *postgresDatabaseQuery) Aggregation(field, function string, keys ...string) (value float64, err error) {
+func (s *postgresDatabaseQuery) Aggregation(field string, function database.AggFunc, keys ...string) (value float64, err error) {
 
-	if !collections.Include(functions, function) {
+	if !collections.Include(functions, string(function)) {
 		return 0, fmt.Errorf("function %s not supported", function)
 	}
-	SQL, args := s.buildCountStatement(field, function, keys...)
+	SQL, args := s.buildCountStatement(field, string(function), keys...)
 
 	statement, e := s.db.pgDb.Prepare(SQL)
 	if e != nil {
@@ -379,9 +379,9 @@ func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (map[an
 // the data point is a calculation of the provided function on the selected field, each data point includes the number of documents and the calculated value
 // the total is the sum of all calculated values in all the buckets
 // supported functions: count : avg, sum, min, max
-func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ...string) (map[any]Tuple[int64, float64], float64, error) {
+func (s *postgresDatabaseQuery) GroupAggregation(field string, function database.AggFunc, keys ...string) (map[any]Tuple[int64, float64], float64, error) {
 
-	if !collections.Include(functions, function) {
+	if !collections.Include(functions, string(function)) {
 		return nil, 0, fmt.Errorf("function %s not supported", function)
 	}
 	result := make(map[any]Tuple[int64, float64])
@@ -430,9 +430,9 @@ func (s *postgresDatabaseQuery) GroupAggregation(field, function string, keys ..
 // the data point is a calculation of the provided function on the selected field, each data point includes the number of documents and the calculated value
 // the total is the sum of all calculated values in all the buckets
 // supported functions: count : avg, sum, min, max
-func (s *postgresDatabaseQuery) Histogram(field, function, timeField string, interval time.Duration, keys ...string) (map[Timestamp]Tuple[int64, float64], float64, error) {
+func (s *postgresDatabaseQuery) Histogram(field string, function database.AggFunc, timeField string, interval time.Duration, keys ...string) (map[Timestamp]Tuple[int64, float64], float64, error) {
 
-	if !collections.Include(functions, function) {
+	if !collections.Include(functions, string(function)) {
 		return nil, 0, fmt.Errorf("function %s not supported", function)
 	}
 	result := make(map[Timestamp]Tuple[int64, float64])
@@ -489,8 +489,8 @@ func (s *postgresDatabaseQuery) Histogram(field, function, timeField string, int
 // Histogram2D returns a two-dimensional time series data points based on the time field, supported intervals: Minute, Hour, Day, week, month
 // the data point is a calculation of the provided function on the selected field
 // supported functions: count : avg, sum, min, max
-func (s *postgresDatabaseQuery) Histogram2D(field, function, dim, timeField string, interval time.Duration, keys ...string) (map[Timestamp]map[any]Tuple[int64, float64], float64, error) {
-	if !collections.Include(functions, function) {
+func (s *postgresDatabaseQuery) Histogram2D(field string, function database.AggFunc, dim, timeField string, interval time.Duration, keys ...string) (map[Timestamp]map[any]Tuple[int64, float64], float64, error) {
+	if !collections.Include(functions, string(function)) {
 		return nil, 0, fmt.Errorf("function %s not supported", function)
 	}
 	result := make(map[Timestamp]map[any]Tuple[int64, float64])
