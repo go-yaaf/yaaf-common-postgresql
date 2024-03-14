@@ -6,6 +6,7 @@ package postgresql
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -368,7 +369,13 @@ func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (map[an
 
 	for rows.Next() {
 		if er := rows.Scan(&count, &group); er == nil {
-			result[group] = count
+			// If group is a number, add it as a number
+			str := fmt.Sprintf("%v", group)
+			if gNum, cErr := strconv.Atoi(str); cErr != nil {
+				result[group] = count
+			} else {
+				result[gNum] = count
+			}
 			total += count
 		}
 	}
@@ -419,7 +426,13 @@ func (s *postgresDatabaseQuery) GroupAggregation(field string, function database
 
 	for rows.Next() {
 		if er := rows.Scan(&count, &group); er == nil {
-			result[group] = Tuple[int64, float64]{Key: int64(count), Value: count}
+			// If group is a number, add it as a number
+			str := fmt.Sprintf("%v", group)
+			if gNum, cErr := strconv.Atoi(str); cErr != nil {
+				result[group] = Tuple[int64, float64]{Key: int64(count), Value: count}
+			} else {
+				result[gNum] = Tuple[int64, float64]{Key: int64(count), Value: count}
+			}
 			total += count
 		}
 	}
