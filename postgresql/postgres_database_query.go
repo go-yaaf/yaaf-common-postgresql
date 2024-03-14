@@ -364,7 +364,7 @@ func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (map[an
 	}
 
 	var count, total int64
-	var group int
+	var group any
 
 	for rows.Next() {
 		if er := rows.Scan(&count, &group); er == nil {
@@ -415,7 +415,7 @@ func (s *postgresDatabaseQuery) GroupAggregation(field string, function database
 	}
 
 	var count float64
-	var group int
+	var group any
 
 	for rows.Next() {
 		if er := rows.Scan(&count, &group); er == nil {
