@@ -67,3 +67,25 @@ var list_of_heroes = []Entity{
 }
 
 // endregion
+
+// region Device Test Model --------------------------------------------------------------------------------------------
+
+type Device struct {
+	BaseEntity
+}
+
+func (u *Device) TABLE() string { return "device" }
+func NewDevice() Entity         { return &Device{} }
+
+// endregion
+
+// region Stream Test Model --------------------------------------------------------------------------------------------
+
+type Stream struct {
+	BaseEntity
+}
+
+func (u *Stream) TABLE() string { return "stream" }
+func NewStream() Entity         { return &Stream{} }
+
+// endregion

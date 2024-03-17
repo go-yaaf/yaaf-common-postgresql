@@ -6,6 +6,7 @@ package postgresql
 import (
 	"fmt"
 	"github.com/lib/pq"
+	"reflect"
 	"strings"
 
 	"github.com/go-yaaf/yaaf-common/database"
@@ -236,34 +237,40 @@ func parseWildcards(value string) string {
 // Build IN query filter
 func (s *postgresDatabaseQuery) buildFilterIn(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
-	return fmt.Sprintf("(%s = ANY($%d))", fieldName, varIndex), []any{pq.Array(qf.GetValues())}
+	// If value is of type array, convert each item to an array
+	list := make([]any, 0)
 
-	// For string values, use IN clause
-	/**
-	values := qf.GetValues()
-	if _, ok := values[0].(string); ok {
-		list := createStringsList(values)
-		return fmt.Sprintf("(%s IN (%s))", fieldName, list), nil
-	} else {
-		return fmt.Sprintf("(%s = ANY($%d))", fieldName, varIndex), []any{pq.Array(qf.GetValues())}
-	} */
+	for _, val := range qf.GetValues() {
+		if reflect.TypeOf(val).Kind() == reflect.Slice {
+			items := s.convertAnyArray(val)
+			for _, item := range items {
+				list = append(list, item)
+			}
+		} else {
+			list = append(list, val)
+		}
+	}
+
+	return fmt.Sprintf("(%s = ANY($%d))", fieldName, varIndex), []any{pq.Array(list)}
 }
 
 // Build NOT IN query filter
 func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
-	return fmt.Sprintf("NOT (%s = ANY ($%d))", fieldName, varIndex), []any{pq.Array(qf.GetValues())}
+	// If value is of type array, convert each item to an array
+	list := make([]any, 0)
 
-	// For string values, use IN clause
-	/**
-	values := qf.GetValues()
-	if _, ok := values[0].(string); ok {
-		list := createStringsList(values)
-		return fmt.Sprintf("(%s NOT IN (%s))", fieldName, list), nil
-	} else {
-		return fmt.Sprintf("NOT (%s = ANY ($%d))", fieldName, varIndex), []any{pq.Array(qf.GetValues())}
+	for _, val := range qf.GetValues() {
+		if reflect.TypeOf(val).Kind() == reflect.Slice {
+			items := s.convertAnyArray(val)
+			for _, item := range items {
+				list = append(list, item)
+			}
+		} else {
+			list = append(list, val)
+		}
 	}
-	*/
+	return fmt.Sprintf("NOT (%s = ANY ($%d))", fieldName, varIndex), []any{pq.Array(list)}
 }
 
 // Build the cast
@@ -291,3 +298,57 @@ func (s *postgresDatabaseQuery) getCastField(qf database.QueryFilter) (result st
 }
 
 // endregion
+
+func (s *postgresDatabaseQuery) convertAnyArray(value any) (result []any) {
+
+	switch v := value.(type) {
+	case []any:
+		for _, item := range v {
+			result = append(result, item)
+		}
+	case []int:
+		for _, item := range v {
+			result = append(result, item)
+		}
+	case []uint:
+		for _, item := range v {
+			result = append(result, item)
+		}
+	case []int32:
+		for _, item := range v {
+			result = append(result, item)
+		}
+	case []int64:
+		for _, item := range v {
+			result = append(result, item)
+		}
+	case []uint32:
+		for _, item := range v {
+			result = append(result, item)
+		}
+	case []uint64:
+		for _, item := range v {
+			result = append(result, item)
+		}
+	case []string:
+		for _, item := range v {
+			result = append(result, item)
+		}
+	case []float32:
+		for _, item := range v {
+			result = append(result, item)
+		}
+	case []float64:
+		for _, item := range v {
+			result = append(result, item)
+		}
+	case []bool:
+		for _, item := range v {
+			result = append(result, item)
+		}
+	default:
+		fmt.Println(v)
+		result = append(result, value)
+	}
+	return result
+}
