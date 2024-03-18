@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -170,6 +172,12 @@ func convertConnectionString(dbUri string) (driver string, connStr string, err e
 		appName = params["application_name"][0]
 	} else if _, ok := params["ApplicationName"]; ok {
 		appName = params["ApplicationName"][0]
+	}
+
+	// if application_name parameter is not provided, get it from the executable name
+	if len(appName) == 0 {
+		executablePath := os.Args[0]            // Gets the path of the currently running executable
+		appName = filepath.Base(executablePath) // Extracts the executable name from the path
 	}
 
 	connStr = fmt.Sprintf("host=%s port=%s dbname=%s user=%s password=%s sslmode=%s application_name=%s",
