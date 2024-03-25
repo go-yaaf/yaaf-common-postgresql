@@ -4,8 +4,13 @@
 package postgresql
 
 import (
-	"database/sql"
+	"cloud.google.com/go/cloudsqlconn"
+	"context"
 	"fmt"
+	"github.com/go-yaaf/yaaf-common/config"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"net"
 	"net/url"
 	"os"
@@ -13,8 +18,6 @@ import (
 	"reflect"
 	"strings"
 	"time"
-
-	"github.com/lib/pq"
 
 	"github.com/go-yaaf/yaaf-common/database"
 	. "github.com/go-yaaf/yaaf-common/entity"
@@ -25,9 +28,9 @@ import (
 // region Database store definitions -----------------------------------------------------------------------------------
 
 type PostgresDatabase struct {
-	pgDb *sql.DB
-	bus  messaging.IMessageBus
-	uri  string
+	poolDb *pgxpool.Pool
+	bus    messaging.IMessageBus
+	uri    string
 }
 
 const (
@@ -49,91 +52,82 @@ const (
 // region Factory method for Database store ----------------------------------------------------------------------------
 
 // NewPostgresStore factory method for datastore
-//
 // param: URI - represents the database connection string in the format of: postgresql://user:password@host:port/database_name?application_name
 // return: IDatabase instance, error
 func NewPostgresStore(URI string) (dbs database.IDatastore, err error) {
-
-	var (
-		driver, connStr string
-		db              *sql.DB
-	)
-
-	// Ensure driver name
-	if driver, connStr, err = convertConnectionString(URI); err != nil {
-		return nil, err
-	}
-
-	// Open connection
-	if db, err = sql.Open(driver, connStr); err != nil {
-		return nil, err
-	}
-
-	if err = db.Ping(); err != nil {
-		return nil, err
-	} else {
-		dbs = &PostgresDatabase{pgDb: db, uri: URI}
-	}
-	return
+	return createPostgresDatabase(URI)
 }
 
 // NewPostgresDatabase factory method for database
-//
 // param: URI - represents the database connection string in the format of: postgresql://user:password@host:port/database_name?application_name
 // return: IDatabase instance, error
 func NewPostgresDatabase(URI string) (dbs database.IDatabase, err error) {
-
-	var (
-		driver, connStr string
-		db              *sql.DB
-	)
-
-	// Ensure driver name
-	if driver, connStr, err = convertConnectionString(URI); err != nil {
-		return nil, err
-	}
-
-	// Open connection
-	if db, err = sql.Open(driver, connStr); err != nil {
-		return nil, err
-	}
-
-	if err = db.Ping(); err != nil {
-		return nil, err
-	} else {
-		dbs = &PostgresDatabase{pgDb: db, uri: URI}
-	}
-
-	return
+	return createPostgresDatabase(URI)
 }
 
 // NewPostgresDatabaseWithMessageBus factory method for database with injected message bus
-//
 // param: URI - represents the database connection string in the format of: postgresql://user:password@host:port/database_name?application_name
 // return: IDatabase instance, error
 func NewPostgresDatabaseWithMessageBus(URI string, bus messaging.IMessageBus) (dbs database.IDatabase, err error) {
+	var db *PostgresDatabase
+	if db, err = createPostgresDatabase(URI); err != nil {
+		return
+	}
+	db.bus = bus
+	return
+}
 
+func createPostgresDatabase(dbUri string) (dbs *PostgresDatabase, err error) {
 	var (
-		driver, connStr string
-		db              *sql.DB
+		connStr  string
+		poolCfg  *pgxpool.Config
+		poolConn *pgxpool.Pool
 	)
 
 	// Ensure driver name
-	if driver, connStr, err = convertConnectionString(URI); err != nil {
+	if _, connStr, err = convertConnectionString(dbUri); err != nil {
 		return nil, err
 	}
 
-	// Open connection
-	if db, err = sql.Open(driver, connStr); err != nil {
-		return nil, err
+	if poolCfg, err = pgxpool.ParseConfig(connStr); err != nil {
+		return
 	}
 
-	if err = db.Ping(); err != nil {
-		return nil, err
-	} else {
-		dbs = &PostgresDatabase{pgDb: db, bus: bus, uri: URI}
+	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		logger.Debug("new client connection established.")
+		return nil
 	}
 
+	poolCfg.BeforeClose = func(conn *pgx.Conn) {
+		logger.Debug("new client connection closed.")
+	}
+
+	//try to get connection name. If we got one non-empty,
+	//means we are connection via cloud-sql-proxy-connector-go
+	dbConnName := config.Get().DbConnectionName()
+
+	if dbConnName != "" {
+		var d *cloudsqlconn.Dialer
+
+		d, err = cloudsqlconn.NewDialer(context.Background())
+
+		if err != nil {
+			return
+		}
+
+		poolCfg.ConnConfig.DialFunc = func(ctx context.Context, _ string, _ string) (net.Conn, error) {
+			return d.Dial(ctx, dbConnName)
+		}
+	}
+
+	if poolConn, err = pgxpool.NewWithConfig(context.Background(), poolCfg); err != nil {
+		return
+	}
+
+	if err = poolConn.Ping(context.Background()); err != nil {
+		return
+	}
+	dbs = &PostgresDatabase{poolDb: poolConn, uri: dbUri}
 	return
 }
 
@@ -183,7 +177,7 @@ func convertConnectionString(dbUri string) (driver string, connStr string, err e
 	connStr = fmt.Sprintf("host=%s port=%s dbname=%s user=%s password=%s sslmode=%s application_name=%s",
 		host, port, dbName, usr, pwd, "disable", appName)
 
-	return driver, connStr, nil
+	return "pgx", connStr, nil
 }
 
 // Ping Test database connectivity
@@ -201,7 +195,7 @@ func (dbs *PostgresDatabase) Ping(retries uint, intervalInSeconds uint) error {
 	}
 
 	for try := 1; try <= int(retries); try++ {
-		err := dbs.pgDb.Ping()
+		err := dbs.poolDb.Ping(context.Background())
 		if err == nil {
 			return nil
 		}
@@ -218,7 +212,8 @@ func (dbs *PostgresDatabase) Ping(retries uint, intervalInSeconds uint) error {
 
 // Close DB and free resources
 func (dbs *PostgresDatabase) Close() error {
-	return dbs.pgDb.Close()
+	dbs.poolDb.Close()
+	return nil
 }
 
 // CloneDatabase Returns a clone (copy) of the database instance
@@ -274,14 +269,13 @@ func tableName(table string, keys ...string) (tblName string) {
 func (dbs *PostgresDatabase) Get(factory EntityFactory, entityID string, keys ...string) (result Entity, err error) {
 
 	var (
-		rows *sql.Rows
-		fe   error
+		rows pgx.Rows
 	)
 
 	result = factory()
 
 	defer func() {
-		if fe != nil {
+		if err != nil {
 			if result != nil {
 				result = nil
 			}
@@ -294,12 +288,12 @@ func (dbs *PostgresDatabase) Get(factory EntityFactory, entityID string, keys ..
 
 	SQL := fmt.Sprintf(`SELECT id, data FROM "%s" WHERE id = $1`, tableName(result.TABLE(), keys...))
 
-	if rows, err = dbs.pgDb.Query(SQL, entityID); err != nil {
+	if rows, err = dbs.poolDb.Query(context.Background(), SQL, entityID); err != nil {
 		return nil, err
 	}
 
 	// Connection is released to pool only after rows is closed.
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	if !rows.Next() {
 		return nil, fmt.Errorf("no row fetched for id: %s", entityID)
@@ -325,15 +319,16 @@ func (dbs *PostgresDatabase) Get(factory EntityFactory, entityID string, keys ..
 // return: bool, error
 func (dbs *PostgresDatabase) Exists(factory EntityFactory, entityID string, keys ...string) (result bool, err error) {
 
+	var rows pgx.Rows
+
 	SQL := fmt.Sprintf(`SELECT id FROM "%s" WHERE id = $1`, tableName(factory().TABLE(), keys...))
 
-	if rows, err := dbs.pgDb.Query(SQL, entityID); err != nil {
+	if rows, err = dbs.poolDb.Query(context.Background(), SQL, entityID); err != nil {
 		return false, err
-	} else {
-		result = rows.Next()
-		_ = rows.Close()
-		return result, nil
 	}
+	result = rows.Next()
+	rows.Close()
+	return result, nil
 }
 
 // List Get list of entities by IDs
@@ -345,7 +340,7 @@ func (dbs *PostgresDatabase) Exists(factory EntityFactory, entityID string, keys
 func (dbs *PostgresDatabase) List(factory EntityFactory, entityIDs []string, keys ...string) (list []Entity, err error) {
 
 	var (
-		rows *sql.Rows
+		rows pgx.Rows
 	)
 
 	list = make([]Entity, 0)
@@ -357,20 +352,19 @@ func (dbs *PostgresDatabase) List(factory EntityFactory, entityIDs []string, key
 
 	table := tableName(factory().TABLE(), keys...)
 	SQL := fmt.Sprintf(`SELECT id, data FROM "%s" WHERE id = ANY($1)`, table)
-	if rows, err = dbs.pgDb.Query(SQL, pq.Array(entityIDs)); err != nil {
+	if rows, err = dbs.poolDb.Query(context.Background(), SQL, entityIDs); err != nil {
 		return
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	for rows.Next() {
 		jsonDoc := JsonDoc{}
 		if err = rows.Scan(&jsonDoc.Id, &jsonDoc.Data); err != nil {
 			return
-		} else {
-			entity := factory()
-			if err = Unmarshal([]byte(jsonDoc.Data), &entity); err == nil {
-				list = append(list, entity)
-			}
+		}
+		entity := factory()
+		if err = Unmarshal([]byte(jsonDoc.Data), &entity); err == nil {
+			list = append(list, entity)
 		}
 	}
 	return
@@ -382,7 +376,7 @@ func (dbs *PostgresDatabase) List(factory EntityFactory, entityIDs []string, key
 // return: Inserted Entity, error
 func (dbs *PostgresDatabase) Insert(entity Entity) (added Entity, err error) {
 	var (
-		result sql.Result
+		result pgconn.CommandTag
 		data   []byte
 	)
 
@@ -393,13 +387,10 @@ func (dbs *PostgresDatabase) Insert(entity Entity) (added Entity, err error) {
 		return
 	}
 
-	if result, err = dbs.pgDb.Exec(SQL, entity.ID(), data); err != nil {
+	if result, err = dbs.poolDb.Exec(context.Background(), SQL, entity.ID(), data); err != nil {
 		return
 	}
-
-	if affected, err := result.RowsAffected(); err != nil {
-		return nil, err
-	} else if affected == 0 {
+	if result.RowsAffected() == 0 {
 		err = fmt.Errorf("no row affected when inserting new entity")
 	}
 	added = entity
@@ -416,7 +407,7 @@ func (dbs *PostgresDatabase) Insert(entity Entity) (added Entity, err error) {
 func (dbs *PostgresDatabase) Update(entity Entity) (updated Entity, err error) {
 
 	var (
-		result sql.Result
+		result pgconn.CommandTag
 		data   []byte
 	)
 
@@ -426,14 +417,10 @@ func (dbs *PostgresDatabase) Update(entity Entity) (updated Entity, err error) {
 		return
 	}
 
-	if result, err = dbs.pgDb.Exec(SQL, entity.ID(), data); err != nil {
+	if result, err = dbs.poolDb.Exec(context.Background(), SQL, entity.ID(), data); err != nil {
 		return
 	}
-
-	var affected int64
-	if affected, err = result.RowsAffected(); err != nil {
-		return
-	} else if affected == 0 {
+	if result.RowsAffected() == 0 {
 		return nil, fmt.Errorf("no row affected when executing update operation")
 	}
 	updated = entity
@@ -449,8 +436,7 @@ func (dbs *PostgresDatabase) Update(entity Entity) (updated Entity, err error) {
 // return: Updated Entity, error
 func (dbs *PostgresDatabase) Upsert(entity Entity) (updated Entity, err error) {
 	var (
-		result sql.Result
-		data   []byte
+		data []byte
 	)
 
 	tblName := tableName(entity.TABLE(), entity.KEY())
@@ -459,16 +445,10 @@ func (dbs *PostgresDatabase) Upsert(entity Entity) (updated Entity, err error) {
 		return
 	}
 
-	if result, err = dbs.pgDb.Exec(SQL, entity.ID(), data); err != nil {
+	if _, err = dbs.poolDb.Exec(context.Background(), SQL, entity.ID(), data); err != nil {
 		return
 	}
 
-	var affected int64
-	if affected, err = result.RowsAffected(); err != nil {
-		return
-	} else if affected == 0 {
-		return nil, fmt.Errorf("no row affected when executing upsert operation")
-	}
 	updated = entity
 
 	// Publish the change
@@ -484,8 +464,8 @@ func (dbs *PostgresDatabase) Upsert(entity Entity) (updated Entity, err error) {
 // return: error
 func (dbs *PostgresDatabase) Delete(factory EntityFactory, entityID string, keys ...string) (err error) {
 	var (
-		affected int64
-		result   sql.Result
+	//affected int64
+	//result   sql.Result
 	)
 	entity := factory()
 
@@ -497,16 +477,16 @@ func (dbs *PostgresDatabase) Delete(factory EntityFactory, entityID string, keys
 
 	tblName := tableName(entity.TABLE(), keys...)
 	SQL := fmt.Sprintf(sqlDelete, tblName)
-	if result, err = dbs.pgDb.Exec(SQL, entityID); err != nil {
+	if _, err = dbs.poolDb.Exec(context.Background(), SQL, entityID); err != nil {
 		return
 	}
-
-	if affected, err = result.RowsAffected(); err != nil {
-		return
-	} else if affected == 0 {
-		return fmt.Errorf("no row affected when executing delete operation")
-	}
-
+	/*
+		if affected, err = result.RowsAffected(); err != nil {
+			return
+		} else if affected == 0 {
+			return fmt.Errorf("no row affected when executing delete operation")
+		}
+	*/
 	// Publish the change
 	dbs.publishChange(DeleteEntity, deleted)
 	return
@@ -541,17 +521,18 @@ func (dbs *PostgresDatabase) BulkInsert(entities []Entity) (affected int64, err 
 	SQL := fmt.Sprintf(`INSERT INTO "%s" (id, data) VALUES %s`, table, strings.Join(valueStrings, ","))
 
 	var (
-		result sql.Result
+	//result sql.Result
 	)
-	if result, err = dbs.pgDb.Exec(SQL, valueArgs...); err != nil {
+	if _, err = dbs.poolDb.Exec(context.Background(), SQL, valueArgs...); err != nil {
 		return
 	}
-
-	if affected, err = result.RowsAffected(); err != nil {
-		return
-	} else if affected == 0 {
-		return affected, fmt.Errorf("no row affected when executing bulk insert operation")
-	}
+	/*
+		if affected, err = result.RowsAffected(); err != nil {
+			return
+		} else if affected == 0 {
+			return affected, fmt.Errorf("no row affected when executing bulk insert operation")
+		}
+	*/
 
 	// Publish the change
 	for _, entity := range entities {
@@ -571,11 +552,12 @@ func (dbs *PostgresDatabase) BulkUpdate(entities []Entity) (affected int64, err 
 	}
 
 	var (
-		tx *sql.Tx
+		tx pgx.Tx
 	)
 
 	// Start transaction
-	if tx, err = dbs.pgDb.Begin(); err != nil {
+	ctx := context.Background()
+	if tx, err = dbs.poolDb.Begin(ctx); err != nil {
 		return
 	}
 
@@ -584,14 +566,14 @@ func (dbs *PostgresDatabase) BulkUpdate(entities []Entity) (affected int64, err 
 		table := tableName(entity.TABLE(), entity.KEY())
 		SQL := fmt.Sprintf(sqlUpdate, table)
 		data, _ := Marshal(entity)
-		if _, err = dbs.pgDb.Exec(SQL, entity.ID(), data); err != nil {
-			_ = tx.Rollback()
+		if _, err = dbs.poolDb.Exec(ctx, SQL, entity.ID(), data); err != nil {
+			_ = tx.Rollback(ctx)
 			return 0, err
 		}
 	}
 
 	// Commit the transaction
-	if err = tx.Commit(); err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		return
 	} else {
 		affected = int64(len(entities))
@@ -615,11 +597,12 @@ func (dbs *PostgresDatabase) BulkUpsert(entities []Entity) (affected int64, err 
 	}
 
 	var (
-		tx *sql.Tx
+		tx pgx.Tx
 	)
 
 	// Start transaction
-	if tx, err = dbs.pgDb.Begin(); err != nil {
+	ctx := context.Background()
+	if tx, err = dbs.poolDb.Begin(ctx); err != nil {
 		return
 	}
 
@@ -628,14 +611,14 @@ func (dbs *PostgresDatabase) BulkUpsert(entities []Entity) (affected int64, err 
 		table := tableName(entity.TABLE(), entity.KEY())
 		SQL := fmt.Sprintf(sqlUpsert, table)
 		data, _ := Marshal(entity)
-		if _, err = dbs.pgDb.Exec(SQL, entity.ID(), data); err != nil {
-			_ = tx.Rollback()
+		if _, err = dbs.poolDb.Exec(ctx, SQL, entity.ID(), data); err != nil {
+			_ = tx.Rollback(ctx)
 			return 0, err
 		}
 	}
 
 	// Commit the transaction
-	if err = tx.Commit(); err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		return
 	} else {
 		affected = int64(len(entities))
@@ -656,7 +639,7 @@ func (dbs *PostgresDatabase) BulkUpsert(entities []Entity) (affected int64, err 
 // return: Number of deleted entities, error
 func (dbs *PostgresDatabase) BulkDelete(factory EntityFactory, entityIDs []string, keys ...string) (affected int64, err error) {
 	var (
-		result sql.Result
+		result pgconn.CommandTag
 		entity = factory()
 	)
 
@@ -674,13 +657,12 @@ func (dbs *PostgresDatabase) BulkDelete(factory EntityFactory, entityIDs []strin
 
 	SQL := fmt.Sprintf(sqlBulkDelete, tblName)
 
-	if result, err = dbs.pgDb.Exec(SQL, pq.Array(entityIDs)); err != nil {
+	if result, err = dbs.poolDb.Exec(context.Background(), SQL, entityIDs); err != nil {
 		return
 	}
 
-	if affected, err = result.RowsAffected(); err != nil {
-		return
-	} else if affected == 0 {
+	affected = result.RowsAffected()
+	if affected == 0 {
 		return 0, fmt.Errorf("no row affected when executing delete operation")
 	}
 
@@ -714,7 +696,7 @@ func (dbs *PostgresDatabase) SetField(factory EntityFactory, entityID string, fi
 	args = append(args, value)
 	args = append(args, entityID)
 
-	if _, err = dbs.pgDb.Exec(SQL, args...); err != nil {
+	if _, err = dbs.poolDb.Exec(context.Background(), SQL, args...); err != nil {
 		return
 	}
 
@@ -761,7 +743,8 @@ func (dbs *PostgresDatabase) BulkSetFields(factory EntityFactory, field string, 
 	// Create temp table to map entity to field id
 	tmpTable := fmt.Sprintf("ch%d", time.Now().UnixMilli())
 	createTmp := fmt.Sprintf("create TEMP table %s (id character varying PRIMARY KEY NOT NULL, val %s)", tmpTable, sqlType)
-	if _, err := dbs.pgDb.Exec(createTmp); err != nil {
+	ctx := context.Background()
+	if _, err := dbs.poolDb.Exec(ctx, createTmp); err != nil {
 		return 0, err
 	}
 
@@ -776,7 +759,8 @@ func (dbs *PostgresDatabase) BulkSetFields(factory EntityFactory, field string, 
 		i++
 	}
 	SQL := fmt.Sprintf(`INSERT INTO "%s" (id, val) VALUES %s`, tmpTable, strings.Join(valueStrings, ","))
-	if _, err := dbs.pgDb.Exec(SQL, valueArgs...); err != nil {
+
+	if _, err := dbs.poolDb.Exec(ctx, SQL, valueArgs...); err != nil {
 		return 0, err
 	}
 
@@ -789,14 +773,14 @@ func (dbs *PostgresDatabase) BulkSetFields(factory EntityFactory, field string, 
 	// Drop the temp table
 	defer func() {
 		DROP := fmt.Sprintf("DROP TABLE %s", tmpTable)
-		_, _ = dbs.pgDb.Exec(DROP)
+		_, _ = dbs.poolDb.Exec(ctx, DROP)
 	}()
 
 	// Execute update
-	if result, err := dbs.pgDb.Exec(SQL); err != nil {
+	if result, err := dbs.poolDb.Exec(ctx, SQL); err != nil {
 		return 0, err
 	} else {
-		return result.RowsAffected()
+		return result.RowsAffected(), nil
 	}
 }
 
@@ -846,16 +830,18 @@ func (dbs *PostgresDatabase) Query(factory EntityFactory) database.IQuery {
 // param: ddl - The ddl parameter is a map of strings (table names) to array of strings (list of fields to index)
 // return: error
 func (dbs *PostgresDatabase) ExecuteDDL(ddl map[string][]string) (err error) {
+
+	ctx := context.Background()
 	for table, fields := range ddl {
 
 		SQL := fmt.Sprintf(ddlCreateTable, table)
-		if _, err = dbs.pgDb.Exec(SQL); err != nil {
+		if _, err = dbs.poolDb.Exec(ctx, SQL); err != nil {
 			logger.Error("%s error: %s", SQL, err.Error())
 			return
 		}
 		for _, field := range fields {
 			SQL = fmt.Sprintf(ddlCreateIndex, table, field, table, field)
-			if _, err = dbs.pgDb.Exec(SQL); err != nil {
+			if _, err = dbs.poolDb.Exec(ctx, SQL); err != nil {
 				logger.Error("%s error: %s", SQL, err.Error())
 				return
 			}
@@ -870,25 +856,23 @@ func (dbs *PostgresDatabase) ExecuteDDL(ddl map[string][]string) (err error) {
 // param: args - Statement arguments
 // return: Number of affected records, error
 func (dbs *PostgresDatabase) ExecuteSQL(sql string, args ...any) (int64, error) {
-	if result, err := dbs.pgDb.Exec(sql, args...); err != nil {
+
+	if result, err := dbs.poolDb.Exec(context.Background(), sql, args...); err != nil {
 		logger.Error("%s error: %s", sql, err.Error())
 		return 0, err
 	} else {
-		if a, er := result.RowsAffected(); er != nil {
-			return 0, er
-		} else {
-			return a, nil
-		}
+		return result.RowsAffected(), nil
 	}
 }
 
 // ExecuteQuery Execute native SQL query
 func (dbs *PostgresDatabase) ExecuteQuery(sql string, args ...any) ([]Json, error) {
 
-	rows, err := dbs.pgDb.Query(sql, args...)
+	rows, err := dbs.poolDb.Query(context.Background(), sql, args...)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	result := make([]Json, 0)
 	for {
@@ -896,29 +880,20 @@ func (dbs *PostgresDatabase) ExecuteQuery(sql string, args ...any) ([]Json, erro
 			break
 		}
 
-		cols, er := rows.ColumnTypes()
-		if er != nil {
-			return nil, er
-		}
-
-		//for _, t := range cols {
-		//	st := t.ScanType()
-		//	fmt.Println(t.Name(), t.DatabaseTypeName(), st.Name())
-		//}
+		cols := rows.FieldDescriptions()
 
 		values := make([]any, len(cols))
 		for i, _ := range cols {
 			values[i] = new(string)
 		}
 
-		if er = rows.Scan(values...); er != nil {
-			_ = rows.Close()
-			return nil, er
+		if err = rows.Scan(values...); err != nil {
+			return nil, err
 		}
 
 		entry := Json{}
 		for i, col := range cols {
-			entry[col.Name()] = values[i]
+			entry[col.Name] = values[i]
 		}
 		result = append(result, entry)
 	}
@@ -932,7 +907,7 @@ func (dbs *PostgresDatabase) ExecuteQuery(sql string, args ...any) ([]Json, erro
 // return: error
 func (dbs *PostgresDatabase) DropTable(table string) (err error) {
 	SQL := fmt.Sprintf(ddlDropTable, table)
-	if _, err = dbs.pgDb.Exec(SQL); err != nil {
+	if _, err = dbs.poolDb.Exec(context.Background(), SQL); err != nil {
 		logger.Error("%s error: %s", SQL, err.Error())
 	}
 	return
@@ -944,7 +919,7 @@ func (dbs *PostgresDatabase) DropTable(table string) (err error) {
 // return: error
 func (dbs *PostgresDatabase) PurgeTable(table string) (err error) {
 	SQL := fmt.Sprintf(ddlPurgeTable, table)
-	if _, err = dbs.pgDb.Exec(SQL); err != nil {
+	if _, err = dbs.poolDb.Exec(context.Background(), SQL); err != nil {
 		logger.Error("%s error: %s", SQL, err.Error())
 	}
 	return

@@ -4,8 +4,9 @@
 package postgresql
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"strconv"
 	"strings"
 	"time"
@@ -141,33 +142,27 @@ func (s *postgresDatabaseQuery) List(entityIDs []string, keys ...string) (out []
 // On each record, after the marshaling the result shall be transformed via the query callback chain
 func (s *postgresDatabaseQuery) Find(keys ...string) (out []Entity, total int64, err error) {
 
+	var rows pgx.Rows
+
 	sqlState, args := s.buildStatement(keys...)
 
-	statement, e := s.db.pgDb.Prepare(sqlState)
-	if e != nil {
-		return nil, 0, e
-	}
-
-	defer func() {
-		if statement != nil {
-			_ = statement.Close()
-		}
-	}()
-
-	// Execute the query
-	rows, fe := statement.Query(args...)
-	if fe != nil {
-		if rows != nil {
-			_ = rows.Close()
-		}
-		return nil, 0, e
+	if rows, err = s.db.poolDb.Query(context.Background(), sqlState, args...); err != nil {
+		return
 	}
 
 	// Scan row by row and fetch entities
 	var entity Entity
 
+	defer rows.Close()
+
 	for rows.Next() {
-		if entity, fe = s.unMarshal(s.scanRow(rows)); fe != nil {
+
+		jsonDoc := JsonDoc{}
+		if err = rows.Scan(&jsonDoc.Id, &jsonDoc.Data); err != nil {
+			return
+		}
+
+		if entity, err = s.unMarshal(&jsonDoc, nil); err != nil {
 			return
 		}
 		transformed := s.processCallbacks(entity)
@@ -175,9 +170,6 @@ func (s *postgresDatabaseQuery) Find(keys ...string) (out []Entity, total int64,
 			out = append(out, transformed)
 		}
 	}
-
-	_ = rows.Close()
-
 	// Get the rows count
 	total, err = s.Count(keys...)
 	return
@@ -209,25 +201,11 @@ func (s *postgresDatabaseQuery) Select(fields ...string) ([]Json, error) {
 		SQL = fmt.Sprintf(`SELECT %s FROM "%s" %s %s %s`, selectFields, tblName, where, order, limit)
 	}
 
-	statement, e := s.db.pgDb.Prepare(SQL)
-	if e != nil {
-		return nil, e
+	rows, err := s.db.poolDb.Query(context.Background(), SQL, args...)
+	if err != nil {
+		return nil, err
 	}
-
-	defer func() {
-		if statement != nil {
-			_ = statement.Close()
-		}
-	}()
-
-	// Execute the query
-	rows, fe := statement.Query(args...)
-	if fe != nil {
-		if rows != nil {
-			_ = rows.Close()
-		}
-		return nil, e
-	}
+	defer rows.Close()
 
 	result := make([]Json, 0)
 	for {
@@ -235,32 +213,22 @@ func (s *postgresDatabaseQuery) Select(fields ...string) ([]Json, error) {
 			break
 		}
 
-		cols, er := rows.ColumnTypes()
-		if er != nil {
-			return nil, er
-		}
-
+		cols := rows.FieldDescriptions()
 		values := make([]any, len(cols))
-		for i := 0; i < len(cols); i++ {
+		for i := range cols {
 			values[i] = new(string)
 		}
-		//for i, _ := range cols {
-		//	values[i] = new(string)
-		//}
 
-		if er = rows.Scan(values...); er != nil {
-			_ = rows.Close()
-			return nil, er
+		if err = rows.Scan(values...); err != nil {
+			return nil, err
 		}
 
 		entry := Json{}
 		for i, col := range cols {
-			entry[col.Name()] = values[i]
+			entry[col.Name] = values[i]
 		}
 		result = append(result, entry)
 	}
-
-	_ = rows.Close()
 
 	return result, nil
 }
@@ -269,33 +237,18 @@ func (s *postgresDatabaseQuery) Select(fields ...string) ([]Json, error) {
 // returns only the count of matching rows
 func (s *postgresDatabaseQuery) Count(keys ...string) (total int64, err error) {
 
+	var rows pgx.Rows
+
 	SQL, args := s.buildCountStatement("", "count", keys...)
 
-	statement, e := s.db.pgDb.Prepare(SQL)
-	if e != nil {
-		return 0, e
+	if rows, err = s.db.poolDb.Query(context.Background(), SQL, args...); err != nil {
+		return
 	}
 
-	defer func() {
-		if statement != nil {
-			_ = statement.Close()
-		}
-	}()
-
-	// Execute the query
-	rows, fe := statement.Query(args...)
-	if fe != nil {
-		if rows != nil {
-			_ = rows.Close()
-		}
-		return 0, e
-	}
-
+	defer rows.Close()
 	if rows.Next() {
 		err = rows.Scan(&total)
 	}
-
-	_ = rows.Close()
 	return
 }
 
@@ -308,31 +261,17 @@ func (s *postgresDatabaseQuery) Aggregation(field string, function database.AggF
 	}
 	SQL, args := s.buildCountStatement(field, string(function), keys...)
 
-	statement, e := s.db.pgDb.Prepare(SQL)
-	if e != nil {
-		return 0, e
-	}
+	rows, err := s.db.poolDb.Query(context.Background(), SQL, args...)
 
-	defer func() {
-		if statement != nil {
-			_ = statement.Close()
-		}
-	}()
-
-	// Execute the query
-	rows, fe := statement.Query(args...)
-	if fe != nil {
-		if rows != nil {
-			_ = rows.Close()
-		}
-		return 0, e
+	if err != nil {
+		return 0, err
 	}
 
 	if rows.Next() {
 		err = rows.Scan(&value)
 	}
 
-	_ = rows.Close()
+	rows.Close()
 	return
 }
 
@@ -347,18 +286,7 @@ func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (map[an
 	where, args := s.buildCriteria()
 	SQL := fmt.Sprintf(`SELECT count(*) cnt , data->>'%s' grp FROM "%s" %s GROUP BY grp`, field, tblName, where)
 
-	statement, e := s.db.pgDb.Prepare(SQL)
-	if e != nil {
-		return result, 0, e
-	}
-
-	// Execute the query
-	rows, err := statement.Query(args...)
-	defer func() {
-		if statement != nil {
-			_ = statement.Close()
-		}
-	}()
+	rows, err := s.db.poolDb.Query(context.Background(), SQL, args...)
 
 	if err != nil {
 		return result, 0, err
@@ -379,6 +307,8 @@ func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (map[an
 			total += count
 		}
 	}
+
+	rows.Close()
 	return result, total, nil
 }
 
@@ -404,18 +334,8 @@ func (s *postgresDatabaseQuery) GroupAggregation(field string, function database
 		aggr = fmt.Sprintf("(data->>'%s')::FLOAT", field)
 	}
 	SQL := fmt.Sprintf(`SELECT %s(%s) cnt , data->>'%s' grp FROM "%s" %s GROUP BY grp`, function, aggr, field, tblName, where)
-	statement, e := s.db.pgDb.Prepare(SQL)
-	if e != nil {
-		return result, total, e
-	}
 
-	// Execute the query
-	rows, err := statement.Query(args...)
-	defer func() {
-		if statement != nil {
-			_ = statement.Close()
-		}
-	}()
+	rows, err := s.db.poolDb.Query(context.Background(), SQL, args...)
 
 	if err != nil {
 		return result, total, err
@@ -436,6 +356,7 @@ func (s *postgresDatabaseQuery) GroupAggregation(field string, function database
 			total += count
 		}
 	}
+	rows.Close()
 	return result, total, nil
 }
 
@@ -468,21 +389,9 @@ func (s *postgresDatabaseQuery) Histogram(field string, function database.AggFun
 				date_trunc('%s', to_timestamp((data->>'%s')::bigint / 1000)) dp 
 				FROM "%s" %s GROUP BY dp ORDER BY dp`, function, aggr, dp, timeField, tblName, where)
 
-	statement, e := s.db.pgDb.Prepare(SQL)
-	if e != nil {
-		return result, 0, e
-	}
-
-	// Execute the query
-	rows, err := statement.Query(args...)
-	defer func() {
-		if statement != nil {
-			_ = statement.Close()
-		}
-	}()
-
+	rows, err := s.db.poolDb.Query(context.Background(), SQL, args...)
 	if err != nil {
-		return result, 0, err
+		return nil, 0, err
 	}
 
 	var count, total float64
@@ -496,6 +405,7 @@ func (s *postgresDatabaseQuery) Histogram(field string, function database.AggFun
 			total += count
 		}
 	}
+	rows.Close()
 	return result, total, nil
 }
 
@@ -526,21 +436,9 @@ func (s *postgresDatabaseQuery) Histogram2D(field string, function database.AggF
 				date_trunc('%s', to_timestamp((data->>'%s')::bigint / 1000)) dp 
 				FROM "%s" %s GROUP BY dp, dim ORDER BY dp`, function, aggr, dim, dp, timeField, tblName, where)
 
-	statement, e := s.db.pgDb.Prepare(SQL)
-	if e != nil {
-		return result, 0, e
-	}
-
-	// Execute the query
-	rows, err := statement.Query(args...)
-	defer func() {
-		if statement != nil {
-			_ = statement.Close()
-		}
-	}()
-
+	rows, err := s.db.poolDb.Query(context.Background(), SQL, args...)
 	if err != nil {
-		return result, 0, err
+		return nil, 0, err
 	}
 
 	var count, total float64
@@ -559,6 +457,7 @@ func (s *postgresDatabaseQuery) Histogram2D(field string, function database.AggF
 			total += count
 		}
 	}
+	rows.Close()
 	return result, total, nil
 }
 
@@ -568,72 +467,42 @@ func (s *postgresDatabaseQuery) FindSingle(keys ...string) (entity Entity, err e
 
 	s.limit = 1
 	sqlState, args := s.buildStatement(keys...)
+	row := s.db.poolDb.QueryRow(context.Background(), sqlState, args...)
 
-	statement, e := s.db.pgDb.Prepare(sqlState)
-	if e != nil {
-		return nil, e
+	jsonDoc := JsonDoc{}
+	if err = row.Scan(&jsonDoc.Id, &jsonDoc.Data); err != nil {
+		return
 	}
 
-	defer func() {
-		if statement != nil {
-			_ = statement.Close()
-		}
-	}()
-
-	// Execute the query
-	rows, fe := statement.Query(args...)
-	if fe != nil {
-		if rows != nil {
-			_ = rows.Close()
-		}
-		return nil, e
+	if entity, err = s.unMarshal(&jsonDoc, nil); err != nil {
+		return
 	}
-
-	// Scan first row by row and fetch entities
-	if rows.Next() {
-		if ent, fer := s.unMarshal(s.scanRow(rows)); fer != nil {
-			err = fer
-		} else {
-			entity = s.processCallbacks(ent)
-		}
-	} else {
-		err = fmt.Errorf("not found")
-	}
-
-	_ = rows.Close()
+	entity = s.processCallbacks(entity)
 	return
 }
 
 // GetMap Execute query based on the criteria, order and pagination and return the results as a map of id->Entity
 func (s *postgresDatabaseQuery) GetMap(keys ...string) (out map[string]Entity, err error) {
+
+	var rows pgx.Rows
+
 	out = make(map[string]Entity)
 
 	SQL, args := s.buildStatement(keys...)
-	statement, e := s.db.pgDb.Prepare(SQL)
-	if e != nil {
-		return nil, e
-	}
 
-	defer func() {
-		if statement != nil {
-			_ = statement.Close()
-		}
-	}()
-
-	// Execute the query
-	rows, fe := statement.Query(args...)
-	if fe != nil {
-		if rows != nil {
-			_ = rows.Close()
-		}
-		return nil, e
+	if rows, err = s.db.poolDb.Query(context.Background(), SQL, args...); err != nil {
+		return
 	}
 
 	// Scan row by row and fetch entities
 	var entity Entity
 
 	for rows.Next() {
-		if entity, fe = s.unMarshal(s.scanRow(rows)); fe != nil {
+		jsonDoc := JsonDoc{}
+		if err := rows.Scan(&jsonDoc.Id, &jsonDoc.Data); err != nil {
+			return nil, err
+		}
+		if entity, err = s.unMarshal(&jsonDoc, nil); err != nil {
 			return
 		}
 		transformed := s.processCallbacks(entity)
@@ -642,34 +511,21 @@ func (s *postgresDatabaseQuery) GetMap(keys ...string) (out map[string]Entity, e
 		}
 	}
 
-	_ = rows.Close()
+	rows.Close()
 	return
 }
 
 // GetIDs Execute query based on the where criteria, order and pagination and return the results as a list of Ids
 func (s *postgresDatabaseQuery) GetIDs(keys ...string) (out []string, err error) {
 
+	var rows pgx.Rows
+
 	out = make([]string, 0)
 
 	SQL, args := s.buildIdStatement(keys...)
-	statement, e := s.db.pgDb.Prepare(SQL)
-	if e != nil {
-		return nil, e
-	}
 
-	defer func() {
-		if statement != nil {
-			_ = statement.Close()
-		}
-	}()
-
-	// Execute the query
-	rows, fe := statement.Query(args...)
-	if fe != nil {
-		if rows != nil {
-			_ = rows.Close()
-		}
-		return nil, e
+	if rows, err = s.db.poolDb.Query(context.Background(), SQL, args...); err != nil {
+		return
 	}
 
 	// Scan row by row and fetch ID
@@ -679,7 +535,8 @@ func (s *postgresDatabaseQuery) GetIDs(keys ...string) (out []string, err error)
 			out = append(out, id)
 		}
 	}
-	_ = rows.Close()
+
+	rows.Close()
 	return
 }
 
@@ -693,14 +550,10 @@ func (s *postgresDatabaseQuery) Delete(keys ...string) (total int64, err error) 
 	// Build the SQL
 	SQL := fmt.Sprintf(`DELETE FROM "%s" %s %s`, tblName, where, limit)
 
-	if res, ser := s.db.pgDb.Exec(SQL, args...); err != nil {
+	if res, ser := s.db.poolDb.Exec(context.Background(), SQL, args...); err != nil {
 		return 0, ser
 	} else {
-		if rows, er := res.RowsAffected(); er != nil {
-			return 0, er
-		} else {
-			return rows, nil
-		}
+		return res.RowsAffected(), nil
 	}
 }
 
@@ -735,14 +588,10 @@ func (s *postgresDatabaseQuery) SetFields(fields map[string]any, keys ...string)
 	allArgs = append(allArgs, args)
 	SQL := fmt.Sprintf(`UPDATE "%s" SET data = data || '{%s}' %s`, tblName, fieldsList, where)
 
-	if res, er := s.db.pgDb.Exec(SQL, allArgs...); er != nil {
+	if res, er := s.db.poolDb.Exec(context.Background(), SQL, allArgs...); er != nil {
 		return 0, err
 	} else {
-		if rows, ser := res.RowsAffected(); ser != nil {
-			return 0, ser
-		} else {
-			return rows, nil
-		}
+		return res.RowsAffected(), nil
 	}
 }
 
@@ -763,17 +612,6 @@ func (s *postgresDatabaseQuery) ToString() string {
 // endregion
 
 // region Query Internal Methods ---------------------------------------------------------------------------------------
-
-// Scan single database row into Json document
-func (s *postgresDatabaseQuery) scanRow(rows *sql.Rows) (*JsonDoc, error) {
-
-	jsonDoc := JsonDoc{}
-	if err := rows.Scan(&jsonDoc.Id, &jsonDoc.Data); err != nil {
-		return nil, err
-	} else {
-		return &jsonDoc, nil
-	}
-}
 
 // Unmarshal database Json document to Entity
 func (s *postgresDatabaseQuery) unMarshal(jsonDoc *JsonDoc, errIn error) (Entity, error) {

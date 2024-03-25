@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"github.com/go-yaaf/yaaf-common-postgresql/postgresql"
 	"github.com/go-yaaf/yaaf-common/database"
+	"github.com/go-yaaf/yaaf-common/entity"
 	"github.com/go-yaaf/yaaf-common/utils"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"os"
@@ -103,5 +105,66 @@ func (s *PostgresqlTestSuite) TestDatabaseSet() {
 	assert.Nil(s.T(), err)
 	assert.NotEqual(s.T(), total, 0)
 	assert.NotEqual(s.T(), len(group), 0)
+
+}
+
+func TestPgxConnectivity(t *testing.T) {
+	uri := "postgres://postgres:$hield1I2O3T@localhost:5432/postgres?application_name\\=iprep"
+
+	_ = os.Setenv("DB_CONNECTION_NAME", "shieldiot-staging:europe-west3:pulse-staging-postgres")
+	db, err := postgresql.NewPostgresStore(uri)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hero1 := list_of_heroes[0]
+	hero2 := list_of_heroes[1]
+
+	hero11 := Hero{
+		BaseEntity: entity.BaseEntity{
+			Id:        uuid.New().String(),
+			CreatedOn: entity.Timestamp(time.Now().Unix()),
+			UpdatedOn: entity.Timestamp(time.Now().Unix()),
+		},
+		Key:  1,
+		Name: "name 1",
+	}
+	hero22 := Hero{
+		BaseEntity: entity.BaseEntity{
+			Id:        uuid.New().String(),
+			CreatedOn: entity.Timestamp(time.Now().Unix()),
+			UpdatedOn: entity.Timestamp(time.Now().Unix()),
+		},
+		Key:  2,
+		Name: "name 2",
+	}
+	if _, err := db.Insert(hero11); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Insert(hero22); err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		total int64
+		res   []entity.Entity
+	)
+	res, total, err = db.Query(NewHero).MatchAll(database.QueryFilter(
+		database.F("id").In(hero11.ID(), hero22.ID()),
+	)).Find()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log(res, total)
+
+	heros, err := db.List(NewHero, []string{hero11.ID(), hero22.ID()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log(heros[0].ID())
+	_, err = db.BulkDelete(NewHero, []string{hero1.ID(), hero2.ID(), hero11.ID(), hero22.ID()})
+
+	t.Log(db)
 
 }
