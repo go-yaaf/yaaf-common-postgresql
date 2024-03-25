@@ -5,7 +5,6 @@ package postgresql
 
 import (
 	"fmt"
-	"github.com/lib/pq"
 	"reflect"
 	"strings"
 
@@ -178,20 +177,27 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 		//fieldName = fmt.Sprintf("data->>'%s'", qf.GetField())
 		fieldName = s.getCastField(qf)
 	}
-
+	// Sanitize boolean values ( pgx-specific behaviour, expects to get it as string )
+	values := qf.GetValues()
+	booleanType := reflect.TypeOf(true)
+	for i, value := range values {
+		if reflect.TypeOf(value) == booleanType {
+			values[i] = fmt.Sprintf("%t", value)
+		}
+	}
 	switch qf.GetOperator() {
 	case database.Eq:
-		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), qf.GetValues()
+		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), values
 	case database.Neq:
-		return fmt.Sprintf("(%s != $%d)", fieldName, varIndex), qf.GetValues()
+		return fmt.Sprintf("(%s != $%d)", fieldName, varIndex), values
 	case database.Gt:
-		return fmt.Sprintf("(%s > $%d)", fieldName, varIndex), qf.GetValues()
+		return fmt.Sprintf("(%s > $%d)", fieldName, varIndex), values
 	case database.Gte:
-		return fmt.Sprintf("(%s >= $%d)", fieldName, varIndex), qf.GetValues()
+		return fmt.Sprintf("(%s >= $%d)", fieldName, varIndex), values
 	case database.Lt:
-		return fmt.Sprintf("(%s < $%d)", fieldName, varIndex), qf.GetValues()
+		return fmt.Sprintf("(%s < $%d)", fieldName, varIndex), values
 	case database.Lte:
-		return fmt.Sprintf("(%s <= $%d)", fieldName, varIndex), qf.GetValues()
+		return fmt.Sprintf("(%s <= $%d)", fieldName, varIndex), values
 	case database.Like:
 		return s.buildFilterLike(fieldName, qf, varIndex)
 	case database.In:
@@ -199,11 +205,11 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 	case database.NotIn:
 		return s.buildFilterNotIn(fieldName, qf, varIndex)
 	case database.Between:
-		return fmt.Sprintf("(%s BETWEEN $%d AND $%d)", fieldName, varIndex, varIndex+1), qf.GetValues()
+		return fmt.Sprintf("(%s BETWEEN $%d AND $%d)", fieldName, varIndex, varIndex+1), values
 	case database.Contains:
-		return fmt.Sprintf("((%s)::jsonb @> $%d)", fieldName, varIndex), qf.GetValues()
+		return fmt.Sprintf("((%s)::jsonb @> $%d)", fieldName, varIndex), values
 	default:
-		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), qf.GetValues()
+		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), values
 	}
 }
 
@@ -250,8 +256,7 @@ func (s *postgresDatabaseQuery) buildFilterIn(fieldName string, qf database.Quer
 			list = append(list, val)
 		}
 	}
-
-	return fmt.Sprintf("(%s = ANY($%d))", fieldName, varIndex), []any{pq.Array(list)}
+	return fmt.Sprintf("(%s = ANY($%d))", fieldName, varIndex), []any{list}
 }
 
 // Build NOT IN query filter
@@ -270,7 +275,7 @@ func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.Q
 			list = append(list, val)
 		}
 	}
-	return fmt.Sprintf("NOT (%s = ANY ($%d))", fieldName, varIndex), []any{pq.Array(list)}
+	return fmt.Sprintf("NOT (%s = ANY ($%d))", fieldName, varIndex), []any{list}
 }
 
 // Build the cast
