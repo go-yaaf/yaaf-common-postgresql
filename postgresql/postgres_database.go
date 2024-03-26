@@ -94,12 +94,12 @@ func createPostgresDatabase(dbUri string) (dbs *PostgresDatabase, err error) {
 	}
 
 	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		logger.Debug("new client connection established.")
+		logger.Debug("new client db connection established.")
 		return nil
 	}
 
 	poolCfg.BeforeClose = func(conn *pgx.Conn) {
-		logger.Debug("new client connection closed.")
+		logger.Debug("client db connection closed.")
 	}
 
 	//try to get connection name. If we got one non-empty,
