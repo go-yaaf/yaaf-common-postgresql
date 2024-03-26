@@ -93,6 +93,8 @@ func createPostgresDatabase(dbUri string) (dbs *PostgresDatabase, err error) {
 		return
 	}
 
+	poolCfg.MaxConns = int32(config.Get().MaxDbConnections())
+
 	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		logger.Debug("new client db connection established.")
 		return nil
