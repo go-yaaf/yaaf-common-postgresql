@@ -104,7 +104,7 @@ func createPostgresDatabase(dbUri string) (dbs *PostgresDatabase, err error) {
 
 	//try to get connection name. If we got one non-empty,
 	//means we are connection via cloud-sql-proxy-connector-go
-	dbConnName := config.Get().DbConnectionName()
+	dbConnName := config.Get().RdsInstanceName()
 
 	if dbConnName != "" {
 		var d *cloudsqlconn.Dialer
