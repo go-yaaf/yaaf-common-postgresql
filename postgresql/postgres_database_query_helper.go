@@ -5,6 +5,7 @@ package postgresql
 
 import (
 	"fmt"
+	"github.com/go-yaaf/yaaf-common/entity"
 	"reflect"
 	"strings"
 
@@ -179,10 +180,12 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 	}
 	// Sanitize boolean values ( pgx-specific behaviour, expects to get it as string )
 	values := qf.GetValues()
-	booleanType := reflect.TypeOf(true)
 	for i, value := range values {
-		if reflect.TypeOf(value) == booleanType {
+		switch value.(type) {
+		case bool:
 			values[i] = fmt.Sprintf("%t", value)
+		case entity.Timestamp:
+			values[i] = int64(value.(entity.Timestamp))
 		}
 	}
 	switch qf.GetOperator() {
