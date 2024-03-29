@@ -93,18 +93,20 @@ func createPostgresDatabase(dbUri string) (dbs *PostgresDatabase, err error) {
 		return
 	}
 
+	poolCfg.MaxConns = int32(config.Get().MaxDbConnections())
+
 	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		logger.Debug("new client connection established.")
+		logger.Debug("new client db connection established.")
 		return nil
 	}
 
 	poolCfg.BeforeClose = func(conn *pgx.Conn) {
-		logger.Debug("new client connection closed.")
+		logger.Debug("client db connection closed.")
 	}
 
 	//try to get connection name. If we got one non-empty,
 	//means we are connection via cloud-sql-proxy-connector-go
-	dbConnName := config.Get().DbConnectionName()
+	dbConnName := config.Get().RdsInstanceName()
 
 	if dbConnName != "" {
 		var d *cloudsqlconn.Dialer
