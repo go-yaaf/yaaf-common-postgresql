@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-yaaf/yaaf-common/database"
+	"github.com/go-yaaf/yaaf-common/entity"
 )
 
 // region Query helper Methods -----------------------------------------------------------------------------------------
@@ -293,10 +294,18 @@ func (s *postgresDatabaseQuery) getCastField(qf database.QueryFilter) (result st
 		return fmt.Sprintf("(data->>'%s')::BIGINT", qf.GetField())
 	case uint:
 		return fmt.Sprintf("(data->>'%s')::BIGINT", qf.GetField())
+	case int32:
+		return fmt.Sprintf("(data->>'%s')::BIGINT", qf.GetField())
+	case int64:
+		return fmt.Sprintf("(data->>'%s')::BIGINT", qf.GetField())
+	case entity.Timestamp:
+		return fmt.Sprintf("(data->>'%s')::BIGINT", qf.GetField())
 	case float32:
 		return fmt.Sprintf("(data->>'%s')::FLOAT", qf.GetField())
 	case float64:
 		return fmt.Sprintf("(data->>'%s')::FLOAT", qf.GetField())
+	case bool:
+		return fmt.Sprintf("(data->>'%s')::BOOLEAN", qf.GetField())
 	default:
 		return fmt.Sprintf("data->>'%s'", qf.GetField())
 	}
