@@ -21,18 +21,19 @@ var functions = []string{"count", "avg", "sum", "min", "max"}
 // region postgres query internal structure ----------------------------------------------------------------------------
 
 type postgresDatabaseQuery struct {
-	db         *PostgresDatabase        // A reference to the underlying IDatabase
-	factory    EntityFactory            // The entity factory method
-	allFilters [][]database.QueryFilter // List of lists of AND filters
-	anyFilters [][]database.QueryFilter // List of lists of OR filters
-	ascOrders  []any                    // List of fields for ASC order
-	descOrders []any                    // List of fields for DESC order
-	callbacks  []func(in Entity) Entity // List of entity transformation callback functions
-	page       int                      // Page number (for pagination)
-	limit      int                      // Page size: how many results in a page (for pagination)
-	rangeField string                   // Field name for range filter (must be timestamp field)
-	rangeFrom  Timestamp                // Start timestamp for range filter
-	rangeTo    Timestamp                // End timestamp for range filter
+	db              *PostgresDatabase        // A reference to the underlying IDatabase
+	factory         EntityFactory            // The entity factory method
+	allFilters      [][]database.QueryFilter // List of lists of AND filters
+	anyFilters      [][]database.QueryFilter // List of lists of OR filters
+	ascOrders       []any                    // List of fields for ASC order
+	descOrders      []any                    // List of fields for DESC order
+	callbacks       []func(in Entity) Entity // List of entity transformation callback functions
+	page            int                      // Page number (for pagination)
+	limit           int                      // Page size: how many results in a page (for pagination)
+	rangeField      string                   // Field name for range filter (must be timestamp field)
+	rangeFrom       Timestamp                // Start timestamp for range filter
+	rangeTo         Timestamp                // End timestamp for range filter
+	filedNameToType map[string]string        // Holds map of Entity's field s names to their types
 }
 
 // endregion

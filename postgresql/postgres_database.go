@@ -817,9 +817,11 @@ func (dbs *PostgresDatabase) getSqlType(values map[string]any) string {
 // param: factory - Entity factory
 // return: Query object
 func (dbs *PostgresDatabase) Query(factory EntityFactory) database.IQuery {
+	entityFieldsToTypesMap(factory)
 	return &postgresDatabaseQuery{
-		db:      dbs,
-		factory: factory,
+		db:              dbs,
+		factory:         factory,
+		filedNameToType: entityFieldsToTypesMap(factory),
 	}
 }
 

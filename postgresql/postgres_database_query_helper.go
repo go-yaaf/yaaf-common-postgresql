@@ -127,19 +127,20 @@ func (s *postgresDatabaseQuery) buildOrder() string {
 	if l == 0 {
 		return ""
 	}
+
 	fields := make([]string, 0, l)
 	for _, field := range s.ascOrders {
 		if field == "id" {
 			fields = append(fields, fmt.Sprintf("id ASC"))
 		} else {
-			fields = append(fields, fmt.Sprintf("data->>'%s' ASC", field))
+			fields = append(fields, fmt.Sprintf(" %s ASC", s.getCastField(field.(string))))
 		}
 	}
 	for _, field := range s.descOrders {
 		if field == "id" {
 			fields = append(fields, fmt.Sprintf("id DESC"))
 		} else {
-			fields = append(fields, fmt.Sprintf("data->>'%s' DESC", field))
+			fields = append(fields, fmt.Sprintf(" %s ASC", s.getCastField(field.(string))))
 		}
 	}
 
@@ -174,18 +175,13 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 
 	// Determine the field name and extract operator
 	fieldName := qf.GetField()
-	if qf.GetField() != "id" {
+
+	if fieldName != "id" {
 		//fieldName = fmt.Sprintf("data->>'%s'", qf.GetField())
-		fieldName = s.getCastField(qf)
+		fieldName = s.getCastField(fieldName)
 	}
 	// Sanitize boolean values ( pgx-specific behaviour, expects to get it as string )
 	values := qf.GetValues()
-	booleanType := reflect.TypeOf(true)
-	for i, value := range values {
-		if reflect.TypeOf(value) == booleanType {
-			values[i] = fmt.Sprintf("%t", value)
-		}
-	}
 	switch qf.GetOperator() {
 	case database.Eq:
 		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), values
@@ -280,34 +276,33 @@ func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.Q
 }
 
 // Build the cast
-func (s *postgresDatabaseQuery) getCastField(qf database.QueryFilter) (result string) {
-	result = fmt.Sprintf("data->>'%s'", qf.GetField())
+func (s *postgresDatabaseQuery) getCastField(fieldName string) (result string) {
 
-	values := qf.GetValues()
-	if len(values) == 0 {
-		return
-	}
+	fieldTypeAsString := s.filedNameToType[fieldName]
 
-	switch v := values[0].(type) {
-	case int:
-		result = fmt.Sprintf("%v", v)
-		return fmt.Sprintf("(data->>'%s')::BIGINT", qf.GetField())
-	case uint:
-		return fmt.Sprintf("(data->>'%s')::BIGINT", qf.GetField())
-	case int32:
-		return fmt.Sprintf("(data->>'%s')::BIGINT", qf.GetField())
-	case int64:
-		return fmt.Sprintf("(data->>'%s')::BIGINT", qf.GetField())
-	case entity.Timestamp:
-		return fmt.Sprintf("(data->>'%s')::BIGINT", qf.GetField())
-	case float32:
-		return fmt.Sprintf("(data->>'%s')::FLOAT", qf.GetField())
-	case float64:
-		return fmt.Sprintf("(data->>'%s')::FLOAT", qf.GetField())
-	case bool:
-		return fmt.Sprintf("(data->>'%s')::BOOLEAN", qf.GetField())
+	switch fieldTypeAsString {
+	case "byte":
+		return fmt.Sprintf("(data->>'%s')::SMALLINT", fieldName)
+	case "uint8":
+		return fmt.Sprintf("(data->>'%s')::SMALLINT", fieldName)
+	case "int":
+		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+	case "uint":
+		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+	case "int32":
+		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+	case "int64":
+		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+	case "entity.Timestamp":
+		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+	case "float32":
+		return fmt.Sprintf("(data->>'%s')::FLOAT", fieldName)
+	case "float64":
+		return fmt.Sprintf("(data->>'%s')::FLOAT", fieldName)
+	case "bool":
+		return fmt.Sprintf("(data->>'%s')::BOOLEAN", fieldName)
 	default:
-		return fmt.Sprintf("data->>'%s'", qf.GetField())
+		return fmt.Sprintf("data->>'%s'", fieldName)
 	}
 }
 
@@ -365,4 +360,28 @@ func (s *postgresDatabaseQuery) convertAnyArray(value any) (result []any) {
 		result = append(result, value)
 	}
 	return result
+}
+
+func entityFieldsToTypesMap(ef entity.EntityFactory) map[string]string {
+
+	v := ef()
+
+	fieldsMap := make(map[string]string)
+	val := reflect.ValueOf(v)
+
+	// We're only interested in structs
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+
+	if val.Kind() != reflect.Struct {
+		return nil
+	}
+
+	typ := val.Type()
+	for i := 0; i < val.NumField(); i++ {
+		field := typ.Field(i)
+		fieldsMap[strings.ToLower(field.Name)] = field.Type.String()
+	}
+	return fieldsMap
 }
