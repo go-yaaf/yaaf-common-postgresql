@@ -278,8 +278,10 @@ func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.Q
 // Build the cast
 func (s *postgresDatabaseQuery) getCastField(fieldName string) (result string) {
 
-	fieldTypeAsString := s.filedNameToType[fieldName]
-
+	fieldTypeAsString, ok := s.filedNameToType[strings.ToLower(fieldName)]
+	if !ok {
+		return fmt.Sprintf("data->>'%s'", fieldName)
+	}
 	switch fieldTypeAsString {
 	case "byte":
 		return fmt.Sprintf("(data->>'%s')::SMALLINT", fieldName)
@@ -367,6 +369,9 @@ func entityFieldsToTypesMap(ef entity.EntityFactory) map[string]string {
 	v := ef()
 
 	fieldsMap := make(map[string]string)
+	fieldsMap["createdon"] = "int64"
+	fieldsMap["updatedon"] = "int64"
+
 	val := reflect.ValueOf(v)
 
 	// We're only interested in structs
