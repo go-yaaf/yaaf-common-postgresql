@@ -368,9 +368,10 @@ func entityFieldsToTypesMap(ef entity.EntityFactory) map[string]string {
 
 	v := ef()
 
-	fieldsMap := make(map[string]string)
-	fieldsMap["createdon"] = "int64"
-	fieldsMap["updatedon"] = "int64"
+	fieldsMap := map[string]string{
+		"createdon": "int64",
+		"updatedon": "int64",
+	}
 
 	val := reflect.ValueOf(v)
 
