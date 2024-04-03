@@ -130,18 +130,11 @@ func (s *postgresDatabaseQuery) buildOrder() string {
 
 	fields := make([]string, 0, l)
 	for _, field := range s.ascOrders {
-		if field == "id" {
-			fields = append(fields, fmt.Sprintf("id ASC"))
-		} else {
-			fields = append(fields, fmt.Sprintf(" %s ASC", s.getCastField(field.(string))))
-		}
+		fields = append(fields, fmt.Sprintf(" %s ASC", s.getCastField(field.(string))))
 	}
+
 	for _, field := range s.descOrders {
-		if field == "id" {
-			fields = append(fields, fmt.Sprintf("id DESC"))
-		} else {
-			fields = append(fields, fmt.Sprintf(" %s ASC", s.getCastField(field.(string))))
-		}
+		fields = append(fields, fmt.Sprintf(" %s DESC", s.getCastField(field.(string))))
 	}
 
 	order := fmt.Sprintf("ORDER BY %s", strings.Join(fields, " , "))
@@ -371,6 +364,7 @@ func entityFieldsToTypesMap(ef entity.EntityFactory) map[string]string {
 	fieldsMap := map[string]string{
 		"createdon": "int64",
 		"updatedon": "int64",
+		"id":        "string",
 	}
 
 	val := reflect.ValueOf(v)
