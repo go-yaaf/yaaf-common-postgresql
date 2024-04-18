@@ -74,7 +74,7 @@ func NewPostgresDatabaseWithMessageBus(URI string, bus messaging.IMessageBus) (d
 		return
 	}
 	db.bus = bus
-	return
+	return db, nil
 }
 
 func createPostgresDatabase(dbUri string) (dbs *PostgresDatabase, err error) {
