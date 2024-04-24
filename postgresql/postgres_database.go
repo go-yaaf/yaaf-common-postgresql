@@ -887,7 +887,7 @@ func (dbs *PostgresDatabase) ExecuteQuery(sql string, args ...any) ([]Json, erro
 
 		values := make([]any, len(cols))
 		for i, _ := range cols {
-			values[i] = new(string)
+			values[i] = new(any)
 		}
 
 		if err = rows.Scan(values...); err != nil {
