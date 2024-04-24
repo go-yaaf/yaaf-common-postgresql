@@ -885,18 +885,28 @@ func (dbs *PostgresDatabase) ExecuteQuery(sql string, args ...any) ([]Json, erro
 
 		cols := rows.FieldDescriptions()
 
-		values := make([]any, len(cols))
-		for i, _ := range cols {
-			values[i] = new(any)
+		columnsData := make([]any, len(cols))
+		columnPointers := make([]any, len(cols))
+		for i := range columnsData {
+			columnPointers[i] = &columnsData[i]
 		}
 
-		if err = rows.Scan(values...); err != nil {
+		//values := make([]any, len(cols))
+		//for i, _ := range cols {
+		//	values[i] = new(any)
+		//}
+
+		//if err = rows.Scan(values...); err != nil {
+		//	return nil, err
+		//}
+		if err = rows.Scan(columnPointers...); err != nil {
 			return nil, err
 		}
 
 		entry := Json{}
 		for i, col := range cols {
-			entry[col.Name] = values[i]
+			val := columnPointers[i].(*any)
+			entry[col.Name] = *val
 		}
 		result = append(result, entry)
 	}
