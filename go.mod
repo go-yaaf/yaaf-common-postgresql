@@ -5,7 +5,7 @@ go 1.20
 require (
 	cloud.google.com/go/cloudsqlconn v1.8.1
 	github.com/go-yaaf/yaaf-common v1.2.96
-	github.com/go-yaaf/yaaf-common-redis v1.2.40
+	github.com/go-yaaf/yaaf-common-redis v1.2.41
 	github.com/jackc/pgx/v5 v5.5.5
 	github.com/stretchr/testify v1.8.4
 )
