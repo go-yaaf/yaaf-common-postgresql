@@ -6,6 +6,7 @@ package postgresql
 import (
 	"cloud.google.com/go/cloudsqlconn"
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/go-yaaf/yaaf-common/config"
 	"github.com/jackc/pgx/v5"
@@ -963,7 +964,7 @@ func (dbs *PostgresDatabase) publishChange(action EntityAction, entity Entity) {
 	addressee := reflect.TypeOf(entity).String()
 	idx := strings.LastIndex(addressee, ".")
 	addressee = addressee[idx+1:]
-
+	entityRaw, _ := json.Marshal(entity)
 	if dbs.bus != nil {
 		msg := messaging.EntityMessage{
 			BaseMessage: messaging.BaseMessage{
@@ -972,7 +973,7 @@ func (dbs *PostgresDatabase) publishChange(action EntityAction, entity Entity) {
 				MsgAddressee: addressee,
 				MsgSessionId: entity.ID(),
 			},
-			MsgPayload: entity,
+			MsgPayload: entityRaw,
 		}
 		if err := dbs.bus.Publish(&msg); err != nil {
 			logger.Warn("error publishing change: %s", err.Error())
