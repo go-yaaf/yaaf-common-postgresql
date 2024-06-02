@@ -234,22 +234,27 @@ func tableName(table string, keys ...string) (tblName string) {
 	tblName = table
 
 	if len(keys) == 0 {
-		return tblName
+		if strings.Contains(tblName, "-{") {
+			idx := strings.Index(tblName, "{")
+			return tblName[:idx]
+		} else {
+			return tblName
+		}
 	}
 
 	// replace accountId placeholder with the first key
-	tblName = strings.Replace(tblName, "{{accountId}}", "{{0}}", -1)
+	tblName = strings.Replace(tblName, "{accountId}", "{0}", -1)
 
 	for idx, key := range keys {
-		placeHolder := fmt.Sprintf("{{%d}}", idx)
+		placeHolder := fmt.Sprintf("{%d}", idx)
 		tblName = strings.Replace(tblName, placeHolder, key, -1)
 	}
 
 	// Replace templates: {{year}}
-	tblName = strings.Replace(tblName, "{{year}}", time.Now().Format("2006"), -1)
+	tblName = strings.Replace(tblName, "{YYYY}", time.Now().Format("2006"), -1)
 
 	// Replace templates: {{month}}
-	tblName = strings.Replace(tblName, "{{month}}", time.Now().Format("01"), -1)
+	tblName = strings.Replace(tblName, "{MM}", time.Now().Format("01"), -1)
 
 	// TODO: Replace templates: {{week}}
 
