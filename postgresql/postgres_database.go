@@ -156,9 +156,15 @@ func convertConnectionString(dbUri string) (driver string, connStr string, err e
 	}
 
 	dbName := strings.TrimPrefix(uri.Path, "/") // Remove slash
-	host, port, err := net.SplitHostPort(uri.Host)
-	if err != nil {
-		return "", "", fmt.Errorf("URI: %s host:port parsing failed: %s", dbUri, err.Error())
+
+	// Set default values
+	host := uri.Host
+	port := "5432"
+	if strings.Contains(uri.Host, ":") {
+		host, port, err = net.SplitHostPort(uri.Host)
+		if err != nil {
+			return "", "", fmt.Errorf("URI: %s host:port parsing failed: %s", dbUri, err.Error())
+		}
 	}
 
 	// Get the app name
