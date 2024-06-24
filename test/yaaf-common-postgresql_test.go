@@ -5,6 +5,7 @@ import (
 	"github.com/go-yaaf/yaaf-common-postgresql/postgresql"
 	"github.com/go-yaaf/yaaf-common/database"
 	"github.com/stretchr/testify/require"
+	"strings"
 	"testing"
 )
 
@@ -52,4 +53,26 @@ func TestInQueryFilter(t *testing.T) {
 		}
 	}
 	fmt.Println("Done")
+}
+
+func TestTableName(t *testing.T) {
+	skipCI(t)
+
+	tableName := "insight-{accountId}-{YYYY}.{MM}"
+
+	newName := getTableName(tableName)
+	fmt.Println(newName)
+}
+
+func getTableName(table string, keys ...string) (tblName string) {
+
+	tblName = table
+
+	//if len(keys) == 0 {
+	if strings.Contains(tblName, "-{") {
+		idx := strings.Index(tblName, "{")
+		return tblName[:idx-1]
+	} else {
+		return tblName
+	}
 }
