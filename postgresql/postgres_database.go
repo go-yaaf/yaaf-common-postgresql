@@ -880,7 +880,7 @@ func (dbs *PostgresDatabase) ExecuteSQL(sql string, args ...any) (int64, error) 
 }
 
 // ExecuteQuery Execute native SQL query
-func (dbs *PostgresDatabase) ExecuteQuery(sql string, args ...any) ([]Json, error) {
+func (dbs *PostgresDatabase) ExecuteQuery(source string, sql string, args ...any) ([]Json, error) {
 
 	rows, err := dbs.poolDb.Query(context.Background(), sql, args...)
 	if err != nil {

@@ -884,7 +884,7 @@ func (dbs *PostgresDatabase) ExecuteSQL(sql string, args ...any) (int64, error) 
 }
 
 // ExecuteQuery Execute native SQL query
-func (dbs *PostgresDatabase) ExecuteQuery(sql string, args ...any) ([]Json, error) {
+func (dbs *PostgresDatabase) ExecuteQuery(source, sql string, args ...any) ([]Json, error) {
 
 	rows, err := dbs.pgDb.Query(sql, args...)
 	if err != nil {
