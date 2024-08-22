@@ -703,10 +703,16 @@ func (dbs *PostgresDatabase) SetField(factory EntityFactory, entityID string, fi
 	entity := factory()
 	tblName := tableName(entity.TABLE(), keys...)
 
-	SQL := fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', $1, false) WHERE id = $2`, tblName, field)
+	SQL := ""
+
+	if strVal, ok := value.(string); ok {
+		SQL = fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', '"%s"', false) WHERE id = $1`, tblName, field, strVal)
+	} else {
+		SQL = fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', '%v', false) WHERE id = $1`, tblName, field, value)
+	}
+	//SQL := fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', $1, false) WHERE id = $2`, tblName, field)
 
 	args := make([]any, 0)
-	args = append(args, value)
 	args = append(args, entityID)
 
 	if _, err = dbs.poolDb.Exec(context.Background(), SQL, args...); err != nil {
