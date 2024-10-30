@@ -2,8 +2,6 @@ module github.com/go-yaaf/yaaf-common-postgresql
 
 go 1.21
 
-toolchain go1.23.0
-
 require (
 	cloud.google.com/go/cloudsqlconn v1.13.0
 	github.com/go-yaaf/yaaf-common v1.2.119
