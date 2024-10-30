@@ -162,15 +162,16 @@ func (s *postgresDatabaseQuery) buildLimit() string {
 func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
 	// Ignore empty values
-	if len(qf.GetValues()) == 0 {
-		return "", nil
+	if qf.GetOperator() != database.Empty {
+		if len(qf.GetValues()) == 0 {
+			return "", nil
+		}
 	}
 
 	// Determine the field name and extract operator
 	fieldName := qf.GetField()
 
 	if fieldName != "id" {
-		//fieldName = fmt.Sprintf("data->>'%s'", qf.GetField())
 		fieldName = s.getCastField(fieldName)
 	}
 	// Sanitize boolean values ( pgx-specific behaviour, expects to get it as string )
@@ -197,7 +198,9 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 	case database.Between:
 		return fmt.Sprintf("(%s BETWEEN $%d AND $%d)", fieldName, varIndex, varIndex+1), values
 	case database.Contains:
-		return fmt.Sprintf("((%s)::jsonb @> $%d)", fieldName, varIndex), values
+		return fmt.Sprintf("((%s)::jsonb @> $%d)", fieldName, varIndex), qf.GetValues()
+	case database.Empty:
+		return fmt.Sprintf("((%s = '') IS NOT FALSE)", fieldName), values
 	default:
 		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), values
 	}

@@ -202,6 +202,8 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 		return fmt.Sprintf("(%s BETWEEN $%d AND $%d)", fieldName, varIndex, varIndex+1), qf.GetValues()
 	case database.Contains:
 		return fmt.Sprintf("((%s)::jsonb @> $%d)", fieldName, varIndex), qf.GetValues()
+	case database.Empty:
+		return fmt.Sprintf("((%s = '') IS NOT FALSE)", fieldName), qf.GetValues()
 	default:
 		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), qf.GetValues()
 	}
