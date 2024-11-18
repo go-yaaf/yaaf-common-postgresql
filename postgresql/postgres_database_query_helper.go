@@ -274,33 +274,40 @@ func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.Q
 // Build the cast
 func (s *postgresDatabaseQuery) getCastField(fieldName string) (result string) {
 
+	// Convert to Postgres Jsonb query
+	dataField := fmt.Sprintf("data->>'%s'", fieldName)
+	if strings.Contains(fieldName, ".") {
+		fields := strings.ReplaceAll(fieldName, ".", ",")
+		dataField = fmt.Sprintf("data#>>'{%s}'", fields)
+	}
+
 	fieldTypeAsString, ok := s.filedNameToType[strings.ToLower(fieldName)]
 	if !ok {
-		return fmt.Sprintf("data->>'%s'", fieldName)
+		return dataField
 	}
 	switch fieldTypeAsString {
 	case "byte":
-		return fmt.Sprintf("(data->>'%s')::SMALLINT", fieldName)
+		return fmt.Sprintf("(%s)::SMALLINT", dataField)
 	case "uint8":
-		return fmt.Sprintf("(data->>'%s')::SMALLINT", fieldName)
+		return fmt.Sprintf("(%s)::SMALLINT", dataField)
 	case "int":
-		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+		return fmt.Sprintf("(%s)::BIGINT", dataField)
 	case "uint":
-		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+		return fmt.Sprintf("(%s)::BIGINT", dataField)
 	case "int32":
-		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+		return fmt.Sprintf("(%s)::BIGINT", dataField)
 	case "int64":
-		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+		return fmt.Sprintf("(%s)::BIGINT", dataField)
 	case "entity.Timestamp":
-		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+		return fmt.Sprintf("(%s)::BIGINT", dataField)
 	case "float32":
-		return fmt.Sprintf("(data->>'%s')::FLOAT", fieldName)
+		return fmt.Sprintf("(%s)::FLOAT", dataField)
 	case "float64":
-		return fmt.Sprintf("(data->>'%s')::FLOAT", fieldName)
+		return fmt.Sprintf("(%s)::FLOAT", dataField)
 	case "bool":
-		return fmt.Sprintf("(data->>'%s')::BOOLEAN", fieldName)
+		return fmt.Sprintf("(%s)::BOOLEAN", dataField)
 	default:
-		return fmt.Sprintf("data->>'%s'", fieldName)
+		return fmt.Sprintf("%s", dataField)
 	}
 }
 
