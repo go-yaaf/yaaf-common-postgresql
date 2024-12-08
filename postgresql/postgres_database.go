@@ -4,13 +4,10 @@
 package postgresql
 
 import (
-	"cloud.google.com/go/cloudsqlconn"
 	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/go-yaaf/yaaf-common/config"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"log"
 	"net"
 	"net/url"
 	"os"
@@ -18,6 +15,12 @@ import (
 	"reflect"
 	"strings"
 	"time"
+
+	"cloud.google.com/go/cloudsqlconn"
+	"github.com/go-yaaf/yaaf-common/config"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/go-yaaf/yaaf-common/database"
 	. "github.com/go-yaaf/yaaf-common/entity"
@@ -32,6 +35,14 @@ type PostgresDatabase struct {
 	bus    messaging.IMessageBus
 	uri    string
 }
+
+type NotificationPayload struct {
+	Operation string      `json:"operation"`
+	ID        string      `json:"id"`
+	Data      interface{} `json:"data"`
+}
+
+type NotificationHandler func(np NotificationPayload)
 
 const (
 	sqlInsert             = `INSERT INTO "%s" (id, data) VALUES ($1, $2)`
@@ -947,6 +958,71 @@ func (dbs *PostgresDatabase) PurgeTable(table string) (err error) {
 		logger.Error("%s error: %s", SQL, err.Error())
 	}
 	return
+}
+
+// Subscribe subscribes to a specified PostgreSQL channel to receive notifications
+// when events are published on that channel. It uses the LISTEN/NOTIFY mechanism
+// of PostgreSQL to enable real-time updates.
+//
+// This method takes a channel name and a handler function, which is called whenever
+// a notification is received on the specified channel.
+//
+// Parameters:
+//   - channel: The name of the PostgreSQL channel to listen for notifications.
+//   - handler: A callback function of type `NotificationHandler` that will be invoked
+//     whenever a notification is received. The handler should process the
+//     notification payload.
+//
+// Return Value:
+//   - error: Returns an error if there is a failure in subscribing to the channel
+//     or if a notification handling issue occurs.
+//
+// Behavior:
+//   - The function internally executes a `LISTEN` command to subscribe to the specified
+//     channel in PostgreSQL.
+//   - When a notification is published on the channel using `NOTIFY`, the handler
+//     function is triggered with the notification payload.
+//   - If an error occurs while listening or handling the notification, it will
+//     propagate as a return value.
+func (dbs *PostgresDatabase) Subscribe(channel string, handler NotificationHandler) error {
+
+	// Subscribe to the PostgreSQL channel
+	ctx := context.Background()
+
+	conn, err := dbs.poolDb.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = conn.Exec(ctx, fmt.Sprintf("LISTEN %s", channel))
+	if err != nil {
+		return err
+	}
+
+	// Handle notifications on separate thread
+	//TODO re-factor with cancelation
+	go func() {
+		for {
+			notification, err := conn.Conn().WaitForNotification(ctx)
+			if err != nil {
+				log.Printf("Error receiving notification: %v", err)
+				time.Sleep(time.Second) // Retry after a brief delay
+				continue
+			}
+
+			log.Printf("Received notification: %s", notification.Payload)
+
+			var payload NotificationPayload
+			if err := json.Unmarshal([]byte(notification.Payload), &payload); err != nil {
+				log.Printf("Error unmarshaling notification payload: %v", err)
+				continue
+			}
+
+			// Process the notification
+			handler(payload)
+		}
+	}()
+	return nil
 }
 
 //endregion
