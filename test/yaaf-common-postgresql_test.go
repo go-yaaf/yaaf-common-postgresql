@@ -76,3 +76,34 @@ func getTableName(table string, keys ...string) (tblName string) {
 		return tblName
 	}
 }
+
+func TestContainsQuery(t *testing.T) {
+	skipCI(t)
+
+	dbURI := fmt.Sprintf("postgres://user:pwd@host:5432/postgres")
+
+	db, err := postgresql.NewPostgresDatabase(dbURI)
+	require.NoError(t, err)
+
+	from := 20241208000000
+	to := 20250107075327
+	userId := "ke2j26cq"
+	accountId := "51608267"
+
+	result, total, er := db.Query(NewBooking).
+		MatchAll(
+			database.F("placementOn").Gt(from),
+			database.F("placementOn").Lt(to)).
+		MatchAny(
+			database.F("requestedFor").Contains(userId),
+		).
+		Sort("placementOn").
+		Limit(1000).
+		Find(accountId)
+
+	require.NoError(t, er)
+	require.NotNil(t, result)
+	fmt.Println(total)
+
+	fmt.Println("Done")
+}

@@ -130,11 +130,11 @@ func (s *postgresDatabaseQuery) buildOrder() string {
 
 	fields := make([]string, 0, l)
 	for _, field := range s.ascOrders {
-		fields = append(fields, fmt.Sprintf(" %s ASC", s.getCastField(field.(string))))
+		fields = append(fields, fmt.Sprintf(" %s ASC", s.getCastField(field.(string), database.Eq)))
 	}
 
 	for _, field := range s.descOrders {
-		fields = append(fields, fmt.Sprintf(" %s DESC", s.getCastField(field.(string))))
+		fields = append(fields, fmt.Sprintf(" %s DESC", s.getCastField(field.(string), database.Eq)))
 	}
 
 	order := fmt.Sprintf("ORDER BY %s", strings.Join(fields, " , "))
@@ -161,9 +161,11 @@ func (s *postgresDatabaseQuery) buildLimit() string {
 // Build query filter
 func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
+	values := qf.GetValues()
+
 	// Ignore empty values
 	if qf.GetOperator() != database.Empty {
-		if len(qf.GetValues()) == 0 {
+		if len(values) == 0 {
 			return "", nil
 		}
 	}
@@ -172,10 +174,10 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 	fieldName := qf.GetField()
 
 	if fieldName != "id" {
-		fieldName = s.getCastField(fieldName)
+		fieldName = s.getCastField(fieldName, qf.GetOperator())
 	}
 	// Sanitize boolean values ( pgx-specific behaviour, expects to get it as string )
-	values := qf.GetValues()
+
 	switch qf.GetOperator() {
 	case database.Eq:
 		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), values
@@ -198,12 +200,26 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 	case database.Between:
 		return fmt.Sprintf("(%s BETWEEN $%d AND $%d)", fieldName, varIndex, varIndex+1), values
 	case database.Contains:
-		return fmt.Sprintf("((%s)::jsonb @> $%d)", fieldName, varIndex), qf.GetValues()
+		arr := toArray(values)
+		return fmt.Sprintf("%s @> '[%s]'", fieldName, arr), nil
 	case database.Empty:
 		return fmt.Sprintf("((%s = '') IS NOT FALSE)", fieldName), values
 	default:
 		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), values
 	}
+}
+
+func toArray(values []any) string {
+	result := make([]string, 0)
+	for _, v := range values {
+		if val, ok := v.(string); ok {
+			result = append(result, fmt.Sprintf("\"%v\"", val))
+		} else {
+			result = append(result, fmt.Sprintf("%v", v))
+		}
+
+	}
+	return strings.Join(result, ", ")
 }
 
 // Build LIKE query filter
@@ -272,9 +288,13 @@ func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.Q
 }
 
 // Build the cast
-func (s *postgresDatabaseQuery) getCastField(fieldName string) (result string) {
+func (s *postgresDatabaseQuery) getCastField(fieldName string, operator database.QueryOperator) (result string) {
 
 	// Convert to Postgres Jsonb query
+	if operator == database.Contains {
+		return fmt.Sprintf("(data->'%s')", fieldName)
+	}
+
 	dataField := fmt.Sprintf("data->>'%s'", fieldName)
 	if strings.Contains(fieldName, ".") {
 		fields := strings.ReplaceAll(fieldName, ".", ",")
