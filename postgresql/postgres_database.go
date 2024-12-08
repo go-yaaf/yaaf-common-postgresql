@@ -250,17 +250,21 @@ func tableName(table string, keys ...string) (tblName string) {
 
 	tblName = table
 
-	//if len(keys) == 0 {
-	if strings.Contains(tblName, "-{") {
-		idx := strings.Index(tblName, "{")
-		return tblName[:idx-1]
+	if len(keys) == 0 {
+		if strings.Contains(tblName, "{") {
+			idx := strings.Index(tblName, "{")
+			return tblName[:idx-1]
+		} else {
+			return tblName
+		}
+	}
+
+	if strings.Contains(tblName, "{") {
+		tblName = strings.Replace(tblName, "{key}", keys[0], 1)
+		return tblName
 	} else {
 		return tblName
 	}
-	//}
-
-	// replace accountId placeholder with the first key
-	//tblName = strings.Replace(tblName, "{accountId}", "{0}", -1)
 
 	//for idx, key := range keys {
 	//	placeHolder := fmt.Sprintf("{%d}", idx)
@@ -272,8 +276,6 @@ func tableName(table string, keys ...string) (tblName string) {
 
 	// Replace templates: {{month}}
 	//tblName = strings.Replace(tblName, "{MM}", time.Now().Format("01"), -1)
-
-	// TODO: Replace templates: {{week}}
 
 	//return
 }
@@ -714,10 +716,16 @@ func (dbs *PostgresDatabase) SetField(factory EntityFactory, entityID string, fi
 	entity := factory()
 	tblName := tableName(entity.TABLE(), keys...)
 
-	SQL := fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', $1, false) WHERE id = $2`, tblName, field)
+	SQL := ""
+
+	if strVal, ok := value.(string); ok {
+		SQL = fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', '"%s"', false) WHERE id = $1`, tblName, field, strVal)
+	} else {
+		SQL = fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', '%v', false) WHERE id = $1`, tblName, field, value)
+	}
+	//SQL := fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', $1, false) WHERE id = $2`, tblName, field)
 
 	args := make([]any, 0)
-	args = append(args, value)
 	args = append(args, entityID)
 
 	if _, err = dbs.poolDb.Exec(context.Background(), SQL, args...); err != nil {
@@ -891,7 +899,7 @@ func (dbs *PostgresDatabase) ExecuteSQL(sql string, args ...any) (int64, error) 
 }
 
 // ExecuteQuery Execute native SQL query
-func (dbs *PostgresDatabase) ExecuteQuery(sql string, args ...any) ([]Json, error) {
+func (dbs *PostgresDatabase) ExecuteQuery(source string, sql string, args ...any) ([]Json, error) {
 
 	rows, err := dbs.poolDb.Query(context.Background(), sql, args...)
 	if err != nil {

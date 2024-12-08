@@ -89,3 +89,21 @@ func (u *Stream) TABLE() string { return "stream" }
 func NewStream() Entity         { return &Stream{} }
 
 // endregion
+
+// region Booking Test Model --------------------------------------------------------------------------------------------
+
+type Booking struct {
+	BaseEntityEx
+	AccountId    string    `json:"accountId"`    // Account ID
+	PlacementOn  Timestamp `json:"placementOn"`  // When to ask for placement [Epoch milliseconds Timestamp]
+	RequestedFor []string  `json:"requestedFor"` // User Ids registered for the placement
+
+}
+
+func (a Booking) TABLE() string { return "booking_{key}" }
+func (a Booking) KEY() string   { return a.AccountId }
+func (a Booking) NAME() string  { return a.Id }
+
+func NewBooking() Entity { return &Booking{} }
+
+// endregion

@@ -130,11 +130,11 @@ func (s *postgresDatabaseQuery) buildOrder() string {
 
 	fields := make([]string, 0, l)
 	for _, field := range s.ascOrders {
-		fields = append(fields, fmt.Sprintf(" %s ASC", s.getCastField(field.(string))))
+		fields = append(fields, fmt.Sprintf(" %s ASC", s.getCastField(field.(string), database.Eq)))
 	}
 
 	for _, field := range s.descOrders {
-		fields = append(fields, fmt.Sprintf(" %s DESC", s.getCastField(field.(string))))
+		fields = append(fields, fmt.Sprintf(" %s DESC", s.getCastField(field.(string), database.Eq)))
 	}
 
 	order := fmt.Sprintf("ORDER BY %s", strings.Join(fields, " , "))
@@ -161,20 +161,23 @@ func (s *postgresDatabaseQuery) buildLimit() string {
 // Build query filter
 func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
+	values := qf.GetValues()
+
 	// Ignore empty values
-	if len(qf.GetValues()) == 0 {
-		return "", nil
+	if qf.GetOperator() != database.Empty {
+		if len(values) == 0 {
+			return "", nil
+		}
 	}
 
 	// Determine the field name and extract operator
 	fieldName := qf.GetField()
 
 	if fieldName != "id" {
-		//fieldName = fmt.Sprintf("data->>'%s'", qf.GetField())
-		fieldName = s.getCastField(fieldName)
+		fieldName = s.getCastField(fieldName, qf.GetOperator())
 	}
 	// Sanitize boolean values ( pgx-specific behaviour, expects to get it as string )
-	values := qf.GetValues()
+
 	switch qf.GetOperator() {
 	case database.Eq:
 		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), values
@@ -197,10 +200,26 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 	case database.Between:
 		return fmt.Sprintf("(%s BETWEEN $%d AND $%d)", fieldName, varIndex, varIndex+1), values
 	case database.Contains:
-		return fmt.Sprintf("((%s)::jsonb @> $%d)", fieldName, varIndex), values
+		arr := toArray(values)
+		return fmt.Sprintf("%s @> '[%s]'", fieldName, arr), nil
+	case database.Empty:
+		return fmt.Sprintf("((%s = '') IS NOT FALSE)", fieldName), values
 	default:
 		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), values
 	}
+}
+
+func toArray(values []any) string {
+	result := make([]string, 0)
+	for _, v := range values {
+		if val, ok := v.(string); ok {
+			result = append(result, fmt.Sprintf("\"%v\"", val))
+		} else {
+			result = append(result, fmt.Sprintf("%v", v))
+		}
+
+	}
+	return strings.Join(result, ", ")
 }
 
 // Build LIKE query filter
@@ -269,35 +288,46 @@ func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.Q
 }
 
 // Build the cast
-func (s *postgresDatabaseQuery) getCastField(fieldName string) (result string) {
+func (s *postgresDatabaseQuery) getCastField(fieldName string, operator database.QueryOperator) (result string) {
+
+	// Convert to Postgres Jsonb query
+	if operator == database.Contains {
+		return fmt.Sprintf("(data->'%s')", fieldName)
+	}
+
+	dataField := fmt.Sprintf("data->>'%s'", fieldName)
+	if strings.Contains(fieldName, ".") {
+		fields := strings.ReplaceAll(fieldName, ".", ",")
+		dataField = fmt.Sprintf("data#>>'{%s}'", fields)
+	}
 
 	fieldTypeAsString, ok := s.filedNameToType[strings.ToLower(fieldName)]
 	if !ok {
-		return fmt.Sprintf("data->>'%s'", fieldName)
+		return dataField
 	}
 	switch fieldTypeAsString {
 	case "byte":
-		return fmt.Sprintf("(data->>'%s')::SMALLINT", fieldName)
+		return fmt.Sprintf("(%s)::SMALLINT", dataField)
 	case "uint8":
-		return fmt.Sprintf("(data->>'%s')::SMALLINT", fieldName)
+		return fmt.Sprintf("(%s)::SMALLINT", dataField)
 	case "int":
-		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+		return fmt.Sprintf("(%s)::BIGINT", dataField)
 	case "uint":
-		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+		return fmt.Sprintf("(%s)::BIGINT", dataField)
 	case "int32":
-		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+		return fmt.Sprintf("(%s)::BIGINT", dataField)
 	case "int64":
-		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+		return fmt.Sprintf("(%s)::BIGINT", dataField)
 	case "entity.Timestamp":
-		return fmt.Sprintf("(data->>'%s')::BIGINT", fieldName)
+		return fmt.Sprintf("(%s)::BIGINT", dataField)
 	case "float32":
-		return fmt.Sprintf("(data->>'%s')::FLOAT", fieldName)
+		return fmt.Sprintf("(%s)::FLOAT", dataField)
 	case "float64":
-		return fmt.Sprintf("(data->>'%s')::FLOAT", fieldName)
+		return fmt.Sprintf("(%s)::FLOAT", dataField)
 	case "bool":
-		return fmt.Sprintf("(data->>'%s')::BOOLEAN", fieldName)
+		return fmt.Sprintf("(%s)::BOOLEAN", dataField)
 	default:
-		return fmt.Sprintf("data->>'%s'", fieldName)
+		return fmt.Sprintf("%s", dataField)
 	}
 }
 
