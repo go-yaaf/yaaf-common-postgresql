@@ -107,3 +107,53 @@ func (a Booking) NAME() string  { return a.Id }
 func NewBooking() Entity { return &Booking{} }
 
 // endregion
+
+// region User Test Model --------------------------------------------------------------------------------------------
+
+type User struct {
+	BaseEntityEx
+	Name   string   `json:"name"`   // User name
+	Email  string   `json:"email"`  // User email
+	Mobile string   `json:"mobile"` // User mobile phone number (for notification and validation)
+	Type   int      `json:"type"`   // User type: UNDEFINED | SYSADMIN | SUPPORT | USER
+	Roles  int      `json:"roles"`  // User roles flags
+	Groups []string `json:"groups"` // User permissions groups
+	Status int      `json:"status"` // User status: UNDEFINED | PENDING | ACTIVE |  BLOCKED | SUSPENDED
+}
+
+func (u *User) TABLE() string { return "user" }
+func (u *User) NAME() string  { return u.Name }
+func (u *User) KEY() string   { return u.Id }
+
+// NewUser is a factory method to create new instance
+func NewUser() Entity {
+	return &User{BaseEntityEx: BaseEntityEx{CreatedOn: Now(), UpdatedOn: Now(), Props: make(Json)}, Groups: make([]string, 0)}
+}
+
+// endregion
+
+// region Member Test Model --------------------------------------------------------------------------------------------
+
+type Member struct {
+	BaseEntityEx
+	UserId      string    `json:"userId"`      // User Id
+	AccountId   string    `json:"accountId"`   // Account Id
+	AccountRole int       `json:"accountRole"` // Account role: UNDEFINED | ADMIN | STAFF | MEMBER | TEAM | PARA | GUEST
+	Status      int       `json:"status"`      // Member status: UNDEFINED | PENDING | ACTIVE | FROZEN
+	MemberSince Timestamp `json:"memberSince"` // Member in the club since [Epoch milliseconds Timestamp]
+	Expiration  Timestamp `json:"expiration"`  // Membership expiration [Epoch milliseconds Timestamp]
+}
+
+func (u *Member) TABLE() string { return "member" }
+func (u *Member) ID() string    { return fmt.Sprintf("%s@%s", u.UserId, u.AccountId) }
+func (u *Member) KEY() string   { return u.AccountId }
+func (u *Member) NAME() string  { return u.UserId }
+
+func (u *Member) GetId() string { return fmt.Sprintf("%s@%s", u.UserId, u.AccountId) }
+
+// NewMember factory method to create new instance
+func NewMember() Entity {
+	return &Member{BaseEntityEx: BaseEntityEx{CreatedOn: Now(), UpdatedOn: Now(), Props: make(Json)}}
+}
+
+// endregion

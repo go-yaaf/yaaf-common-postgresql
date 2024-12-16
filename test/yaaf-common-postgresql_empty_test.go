@@ -7,25 +7,7 @@ import (
 	"testing"
 
 	"github.com/go-yaaf/yaaf-common-postgresql/postgresql"
-	. "github.com/go-yaaf/yaaf-common/entity"
 )
-
-type User struct {
-	BaseEntityEx
-	Name   string `json:"name"`   // User name
-	Email  string `json:"email"`  // User email
-	Mobile string `json:"mobile"` // User mobile phone number (for notification and validation)
-	Type   int    `json:"type"`   // User type: UNDEFINED | SYSADMIN | SUPPORT | USER
-	Status int    `json:"status"` // User status: UNDEFINED | PENDING | ACTIVE |  BLOCKED | SUSPENDED
-}
-
-func (u *User) TABLE() string { return "user" }
-func (u *User) NAME() string  { return u.Name }
-
-// NewUser is a factory method to create new instance
-func NewUser() Entity {
-	return &User{BaseEntityEx: BaseEntityEx{CreatedOn: Now(), UpdatedOn: Now(), Props: make(Json)}}
-}
 
 func TestEmptyOperator(t *testing.T) {
 	skipCI(t)

@@ -18,12 +18,14 @@ import (
 func (s *postgresDatabaseQuery) buildStatement(keys ...string) (SQL string, args []any) {
 
 	args = make([]any, 0)
+	s.keys = make([]string, 0)
+	s.keys = append(s.keys, keys...)
 
 	// Build the SQL select
 	tblName := tableName(s.factory().TABLE(), keys...)
 
 	// Build the WHERE clause
-	where, args := s.buildCriteria()
+	where, args := s.buildCriteria(0)
 	order := s.buildOrder()
 	limit := s.buildLimit()
 
@@ -41,7 +43,7 @@ func (s *postgresDatabaseQuery) buildCountStatement(field, function string, keys
 	tblName := tableName(s.factory().TABLE(), keys...)
 
 	// Build the WHERE clause
-	where, args := s.buildCriteria()
+	where, args := s.buildCriteria(0)
 
 	aggr := "*"
 	if function != "count" {
@@ -60,7 +62,7 @@ func (s *postgresDatabaseQuery) buildIdStatement(keys ...string) (SQL string, ar
 	tblName := tableName(s.factory().TABLE(), keys...)
 
 	// Build the WHERE clause
-	where, args := s.buildCriteria()
+	where, args := s.buildCriteria(0)
 	order := s.buildOrder()
 	limit := s.buildLimit()
 
@@ -69,9 +71,12 @@ func (s *postgresDatabaseQuery) buildIdStatement(keys ...string) (SQL string, ar
 }
 
 // Build postgres SQL statement with sql arguments based on the query data
-func (s *postgresDatabaseQuery) buildCriteria() (where string, args []any) {
+func (s *postgresDatabaseQuery) buildCriteria(startFrom int) (where string, args []any) {
 	parts := make([]string, 0, 0)
 	varIndex := 1
+	if startFrom > 0 {
+		varIndex = startFrom
+	}
 
 	// Initialize match all (AND) conditions
 	for _, list := range s.allFilters {
@@ -161,6 +166,16 @@ func (s *postgresDatabaseQuery) buildLimit() string {
 // Build query filter
 func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
+	// handle IN sub-query
+	if qf.GetOperator() == database.InSQ {
+		return s.buildSubQueryFilter(qf, varIndex, true)
+	}
+
+	// handle NOT IN sub-query
+	if qf.GetOperator() == database.NotInSQ {
+		return s.buildSubQueryFilter(qf, varIndex, false)
+	}
+
 	values := qf.GetValues()
 
 	// Ignore empty values
@@ -172,7 +187,6 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 
 	// Determine the field name and extract operator
 	fieldName := qf.GetField()
-
 	if fieldName != "id" {
 		fieldName = s.getCastField(fieldName, qf.GetOperator())
 	}
@@ -207,6 +221,39 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 	default:
 		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), values
 	}
+}
+
+func (s *postgresDatabaseQuery) buildSubQueryFilter(qf database.QueryFilter, varIndex int, in bool) (sqlPart string, args []any) {
+
+	fieldName := qf.GetField()
+	if fieldName != "id" {
+		fieldName = s.getCastField(fieldName, qf.GetOperator())
+	}
+
+	subQuery, ok := qf.GetSubQuery().(*postgresDatabaseQuery)
+	if !ok {
+		return "", nil
+	}
+
+	tblName := tableName(subQuery.factory().TABLE(), s.keys...)
+
+	where, subQueryArgs := subQuery.buildCriteria(varIndex)
+	sqField := qf.GetSubQueryField()
+	if sqField != "id" {
+		sqField = s.getCastField(sqField, qf.GetOperator())
+	}
+
+	fmt.Println(args)
+	fmt.Println(where)
+
+	operator := "NOT IN"
+	if in {
+		operator = "IN"
+	}
+
+	sqTableName := tblName
+	SQL := fmt.Sprintf("SELECT %s FROM %s %s", sqField, sqTableName, where)
+	return fmt.Sprintf("(%s %s (%s))", fieldName, operator, SQL), subQueryArgs
 }
 
 func toArray(values []any) string {

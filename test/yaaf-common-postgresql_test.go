@@ -107,3 +107,29 @@ func TestContainsQuery(t *testing.T) {
 
 	fmt.Println("Done")
 }
+
+func TestInSubQuery(t *testing.T) {
+	skipCI(t)
+
+	// dbURI := fmt.Sprintf("postgres://user:pwd@host:5432/postgres")
+	dbURI := "postgres://postgres:dOn7cE1p55m63h4I@34.147.69.116:5432/bookmev2"
+
+	db, err := postgresql.NewPostgresDatabase(dbURI)
+	require.NoError(t, err)
+
+	accountId := "51608267"
+	search := "אור"
+
+	subQuery := db.Query(NewMember).Filter(database.F("accountId").Eq(accountId))
+	result, total, er := db.Query(NewUser).
+		Filter(database.F("name").Like(search)).
+		Filter(database.F("id").InSubQuery("userId", subQuery)).
+		Limit(100).
+		Find(accountId)
+
+	require.NoError(t, er)
+	require.NotNil(t, result)
+	fmt.Println(total)
+
+	fmt.Println("Done")
+}

@@ -34,6 +34,7 @@ type postgresDatabaseQuery struct {
 	rangeFrom       Timestamp                // Start timestamp for range filter
 	rangeTo         Timestamp                // End timestamp for range filter
 	filedNameToType map[string]string        // Holds map of Entity's field s names to their types
+	keys            []string                 // partition keys
 }
 
 // endregion
@@ -183,7 +184,7 @@ func (s *postgresDatabaseQuery) Select(fields ...string) ([]Json, error) {
 	tblName := tableName(s.factory().TABLE())
 
 	// Build the WHERE clause
-	where, args := s.buildCriteria()
+	where, args := s.buildCriteria(0)
 	order := s.buildOrder()
 	limit := s.buildLimit()
 
@@ -284,7 +285,7 @@ func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (map[an
 	// Build the group count statement
 	tblName := tableName(s.factory().TABLE(), keys...)
 	args := make([]any, 0)
-	where, args := s.buildCriteria()
+	where, args := s.buildCriteria(0)
 	SQL := fmt.Sprintf(`SELECT count(*) cnt , data->>'%s' grp FROM "%s" %s GROUP BY grp`, field, tblName, where)
 
 	rows, err := s.db.poolDb.Query(context.Background(), SQL, args...)
@@ -328,7 +329,7 @@ func (s *postgresDatabaseQuery) GroupAggregation(field string, function database
 	// Build the group count statement
 	tblName := tableName(s.factory().TABLE(), keys...)
 	args := make([]any, 0)
-	where, args := s.buildCriteria()
+	where, args := s.buildCriteria(0)
 
 	aggr := "*"
 	if function != "count" {
@@ -375,7 +376,7 @@ func (s *postgresDatabaseQuery) Histogram(field string, function database.AggFun
 	// Build the group count statement
 	tblName := tableName(s.factory().TABLE(), keys...)
 	args := make([]any, 0)
-	where, args := s.buildCriteria()
+	where, args := s.buildCriteria(0)
 
 	// calculate date part
 	dp := s.calculateDatePart(interval)
@@ -422,7 +423,7 @@ func (s *postgresDatabaseQuery) Histogram2D(field string, function database.AggF
 	// Build the group count statement
 	tblName := tableName(s.factory().TABLE(), keys...)
 	args := make([]any, 0)
-	where, args := s.buildCriteria()
+	where, args := s.buildCriteria(0)
 
 	// calculate date part
 	dp := s.calculateDatePart(interval)
@@ -545,7 +546,7 @@ func (s *postgresDatabaseQuery) GetIDs(keys ...string) (out []string, err error)
 func (s *postgresDatabaseQuery) Delete(keys ...string) (total int64, err error) {
 
 	tblName := tableName(s.factory().TABLE(), keys...)
-	where, args := s.buildCriteria()
+	where, args := s.buildCriteria(0)
 	limit := s.buildLimit()
 
 	// Build the SQL
@@ -584,7 +585,7 @@ func (s *postgresDatabaseQuery) SetFields(fields map[string]any, keys ...string)
 	fieldsList := strings.Join(parts, ",")
 
 	// Build the WHERE clause
-	where, args := s.buildCriteria()
+	where, args := s.buildCriteria(0)
 
 	allArgs = append(allArgs, args)
 	SQL := fmt.Sprintf(`UPDATE "%s" SET data = data || '{%s}' %s`, tblName, fieldsList, where)
