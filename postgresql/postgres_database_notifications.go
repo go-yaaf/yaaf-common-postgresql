@@ -30,7 +30,6 @@ type NotificationHandler func(np NotificationPayload)
 //   - error: Returns an error if there is a failure in setting up the trigger,
 //     subscribing to the channel, or receiving notifications.
 func (dbs *PostgresDatabase) Subscribe(ef entity.EntityFactory, handler NotificationHandler) error {
-
 	ctx := context.Background()
 
 	// Ensure the trigger function and trigger are created
@@ -57,7 +56,6 @@ func (dbs *PostgresDatabase) Subscribe(ef entity.EntityFactory, handler Notifica
 	// Handle notifications on a separate goroutine
 	go func() {
 		defer conn.Release()
-		entityFactory := ef
 		for {
 			notification, err := conn.Conn().WaitForNotification(ctx)
 			if err != nil {
@@ -67,7 +65,7 @@ func (dbs *PostgresDatabase) Subscribe(ef entity.EntityFactory, handler Notifica
 			}
 
 			var payload NotificationPayload
-			payload.Entity = entityFactory()
+			payload.Entity = ef() // Create an instance of the entity using the factory
 			if err := json.Unmarshal([]byte(notification.Payload), &payload); err != nil {
 				logger.Error("Error unmarshaling DB notification payload: %v", err)
 				continue

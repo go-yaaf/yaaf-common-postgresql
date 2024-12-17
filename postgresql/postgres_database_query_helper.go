@@ -337,6 +337,15 @@ func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.Q
 // Build the cast
 func (s *postgresDatabaseQuery) getCastField(fieldName string, operator database.QueryOperator) (result string) {
 
+	//check if field's name is in map of "data" fields
+	//if it is not, treat it as a native column name
+	//this is introduced with aim to use native indecies for large
+	//datasets of >1M records.
+	_, ok := s.filedNameToType[strings.ToLower(fieldName)]
+	if !ok {
+		return fieldName
+	}
+
 	// Convert to Postgres Jsonb query
 	if operator == database.Contains {
 		return fmt.Sprintf("(data->'%s')", fieldName)
