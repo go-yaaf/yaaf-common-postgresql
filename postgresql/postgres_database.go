@@ -240,6 +240,29 @@ func tableName(table string, keys ...string) (tblName string) {
 
 	tblName = table
 
+	// If the {key} exists, replace it with keys
+	if strings.Contains(tblName, "{key}") {
+		if len(keys) == 0 {
+			idx := strings.Index(tblName, "{key}")
+			prefix := tblName[:idx-1]
+			if strings.HasSuffix(prefix, "_") {
+				return prefix[:len(prefix)-len("_")]
+			}
+			if strings.HasSuffix(prefix, "-") {
+				return prefix[:len(prefix)-len("-")]
+			}
+			return prefix
+		} else {
+			return strings.ReplaceAll(table, "{key}", keys[0])
+		}
+	}
+
+	// for any other use case, remove placeholders
+	if strings.Contains(tblName, "-{") {
+		idx := strings.Index(tblName, "-{")
+		return tblName[:idx-1]
+	}
+
 	// If keys are not provided, remove placeholders
 	if len(keys) == 0 {
 		if strings.Contains(tblName, "{") {
@@ -248,15 +271,6 @@ func tableName(table string, keys ...string) (tblName string) {
 		} else {
 			return tblName
 		}
-	}
-
-	// If keys provided, replace {key} placeholder with the first key
-	tblName = strings.ReplaceAll(table, "{key}", keys[0])
-
-	// If multiple keys provided as numbers (e.g. {0}, {1}, {2})
-	for idx, key := range keys {
-		placeHolder := fmt.Sprintf("{%d}", idx)
-		tblName = strings.Replace(tblName, placeHolder, key, -1)
 	}
 	return
 }
