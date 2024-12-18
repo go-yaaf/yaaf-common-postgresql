@@ -260,7 +260,7 @@ func tableName(table string, keys ...string) (tblName string) {
 	// for any other use case, remove placeholders
 	if strings.Contains(tblName, "-{") {
 		idx := strings.Index(tblName, "-{")
-		return tblName[:idx-1]
+		return tblName[:idx]
 	}
 
 	// If keys are not provided, remove placeholders
