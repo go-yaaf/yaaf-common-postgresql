@@ -243,9 +243,6 @@ func (s *postgresDatabaseQuery) buildSubQueryFilter(qf database.QueryFilter, var
 		sqField = s.getCastField(sqField, qf.GetOperator())
 	}
 
-	fmt.Println(args)
-	fmt.Println(where)
-
 	operator := "NOT IN"
 	if in {
 		operator = "IN"
@@ -437,7 +434,6 @@ func (s *postgresDatabaseQuery) convertAnyArray(value any) (result []any) {
 			result = append(result, item)
 		}
 	default:
-		fmt.Println(v)
 		result = append(result, value)
 	}
 	return result
