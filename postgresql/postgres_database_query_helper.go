@@ -240,7 +240,7 @@ func (s *postgresDatabaseQuery) buildSubQueryFilter(qf database.QueryFilter, var
 	where, subQueryArgs := subQuery.buildCriteria(varIndex)
 	sqField := qf.GetSubQueryField()
 	if sqField != "id" {
-		sqField = s.getCastField(sqField, qf.GetOperator())
+		sqField = fmt.Sprintf("data->>'%s'", sqField)
 	}
 
 	operator := "NOT IN"
