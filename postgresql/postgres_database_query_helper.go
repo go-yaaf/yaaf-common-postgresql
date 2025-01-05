@@ -78,6 +78,12 @@ func (s *postgresDatabaseQuery) buildCriteria(startFrom int) (where string, args
 		varIndex = startFrom
 	}
 
+	// If range is defined, add it to the filters
+	if len(s.rangeField) > 0 {
+		rangeFilter := []database.QueryFilter{database.F(s.rangeField).Between(s.rangeFrom, s.rangeTo)}
+		s.allFilters = append(s.allFilters, rangeFilter)
+	}
+
 	// Initialize match all (AND) conditions
 	for _, list := range s.allFilters {
 		for _, fq := range list {
@@ -104,12 +110,6 @@ func (s *postgresDatabaseQuery) buildCriteria(startFrom int) (where string, args
 					varIndex += len(partArgs)
 				}
 			}
-		}
-
-		// If range is defined, add it to the filters
-		if len(s.rangeField) > 0 {
-			rangeFilter := []database.QueryFilter{database.F(s.rangeField).Between(s.rangeFrom, s.rangeTo)}
-			s.allFilters = append(s.allFilters, rangeFilter)
 		}
 
 		if len(orParts) > 0 {
