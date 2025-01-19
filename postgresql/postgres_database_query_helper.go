@@ -249,7 +249,7 @@ func (s *postgresDatabaseQuery) buildSubQueryFilter(qf database.QueryFilter, var
 	}
 
 	sqTableName := tblName
-	SQL := fmt.Sprintf("SELECT %s FROM %s %s", sqField, sqTableName, where)
+	SQL := fmt.Sprintf(`SELECT %s FROM "%s" %s`, sqField, sqTableName, where)
 	return fmt.Sprintf("(%s %s (%s))", fieldName, operator, SQL), subQueryArgs
 }
 
