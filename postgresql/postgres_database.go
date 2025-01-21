@@ -849,6 +849,10 @@ func (dbs *PostgresDatabase) Query(factory EntityFactory) database.IQuery {
 	}
 }
 
+func (dbs *PostgresDatabase) QueryAdvanced(factory EntityShardedFactory) database.IAdvancedQuery {
+	panic("PostgresDatabase: IAdvancedQuery interface is not implemented/supported ")
+}
+
 //endregion
 
 // region Database DDL methods -----------------------------------------------------------------------------------------
