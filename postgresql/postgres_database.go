@@ -849,7 +849,7 @@ func (dbs *PostgresDatabase) Query(factory EntityFactory) database.IQuery {
 	}
 }
 
-func (dbs *PostgresDatabase) QueryAdvanced(factory EntityShardedFactory) database.IAdvancedQuery {
+func (dbs *PostgresDatabase) QueryAdvanced(_ EntityShardedFactory, _ string) database.IAdvancedQuery {
 	panic("PostgresDatabase: IAdvancedQuery interface is not implemented/supported ")
 }
 
