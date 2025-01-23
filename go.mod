@@ -4,7 +4,7 @@ go 1.22
 
 require (
 	cloud.google.com/go/cloudsqlconn v1.13.2
-	github.com/go-yaaf/yaaf-common v1.2.132
+	github.com/go-yaaf/yaaf-common v1.2.134
 	github.com/go-yaaf/yaaf-common-redis v1.2.49
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/lib/pq v1.10.9
