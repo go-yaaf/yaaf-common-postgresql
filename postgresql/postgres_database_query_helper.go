@@ -5,6 +5,7 @@ package postgresql
 
 import (
 	"fmt"
+	"net"
 	"reflect"
 	"strings"
 
@@ -207,6 +208,8 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 		return fmt.Sprintf("(%s <= $%d)", fieldName, varIndex), values
 	case database.Like:
 		return s.buildFilterLike(fieldName, qf, varIndex)
+	case database.NotLike:
+		return s.buildFilterNotLike(fieldName, qf, varIndex)
 	case database.In:
 		return s.buildFilterIn(fieldName, qf, varIndex)
 	case database.NotIn:
@@ -216,6 +219,9 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 	case database.Contains:
 		arr := toArray(values)
 		return fmt.Sprintf("%s @> '[%s]'", fieldName, arr), nil
+	case database.NotContains:
+		arr := toArray(values)
+		return fmt.Sprintf("NOT %s @> '[%s]'", fieldName, arr), nil
 	case database.Empty:
 		return fmt.Sprintf("((%s = '') IS NOT FALSE)", fieldName), values
 	default:
@@ -282,6 +288,22 @@ func (s *postgresDatabaseQuery) buildFilterLike(fieldName string, qf database.Qu
 	return
 }
 
+// Build NOT LIKE query filter
+func (s *postgresDatabaseQuery) buildFilterNotLike(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
+
+	args = make([]any, 0)
+	parts := make([]string, 0)
+
+	for _, value := range qf.GetValues() {
+		str := parseWildcards(fmt.Sprintf("%v", value))
+		parts = append(parts, fmt.Sprintf("(lower(%s) NOT LIKE lower($%d))", fieldName, varIndex))
+		args = append(args, str)
+		varIndex++
+	}
+	sqlPart = fmt.Sprintf("(%s)", strings.Join(parts, " OR "))
+	return
+}
+
 // Handle special characters: * ?
 func parseWildcards(value string) string {
 	if strings.Contains(value, "*") {
@@ -307,6 +329,14 @@ func (s *postgresDatabaseQuery) buildFilterIn(fieldName string, qf database.Quer
 			}
 		} else {
 			list = append(list, val)
+		}
+	}
+
+	// Special case for CIDR
+	if len(list) == 1 {
+		str := fmt.Sprintf("%v", list[0])
+		if _, _, err := net.ParseCIDR(str); err != nil {
+			return fmt.Sprintf("((%s)::inet <<= '%s'::cidr)", fieldName, str), nil
 		}
 	}
 	return fmt.Sprintf("(%s = ANY($%d))", fieldName, varIndex), []any{list}
@@ -336,7 +366,7 @@ func (s *postgresDatabaseQuery) getCastField(fieldName string, operator database
 
 	//check if field's name is in map of "data" fields
 	//if it is not, treat it as a native column name
-	//this is introduced with aim to use native indecies for large
+	//this is introduced with aim to use native indices for large
 	//datasets of >1M records.
 	_, ok := s.filedNameToType[strings.ToLower(fieldName)]
 	if !ok {

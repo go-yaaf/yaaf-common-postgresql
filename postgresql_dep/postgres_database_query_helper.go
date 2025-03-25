@@ -194,6 +194,8 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 		return fmt.Sprintf("(%s <= $%d)", fieldName, varIndex), qf.GetValues()
 	case database.Like:
 		return s.buildFilterLike(fieldName, qf, varIndex)
+	case database.NotLike:
+		return s.buildFilterNotLike(fieldName, qf, varIndex)
 	case database.In:
 		return s.buildFilterIn(fieldName, qf, varIndex)
 	case database.NotIn:
@@ -202,6 +204,8 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 		return fmt.Sprintf("(%s BETWEEN $%d AND $%d)", fieldName, varIndex, varIndex+1), qf.GetValues()
 	case database.Contains:
 		return fmt.Sprintf("((%s)::jsonb @> $%d)", fieldName, varIndex), qf.GetValues()
+	case database.NotContains:
+		return fmt.Sprintf("(NOT (%s)::jsonb @> $%d)", fieldName, varIndex), qf.GetValues()
 	case database.Empty:
 		return fmt.Sprintf("((%s = '') IS NOT FALSE)", fieldName), qf.GetValues()
 	default:
@@ -218,6 +222,22 @@ func (s *postgresDatabaseQuery) buildFilterLike(fieldName string, qf database.Qu
 	for _, value := range qf.GetValues() {
 		str := parseWildcards(fmt.Sprintf("%v", value))
 		parts = append(parts, fmt.Sprintf("(lower(%s) LIKE lower($%d))", fieldName, varIndex))
+		args = append(args, str)
+		varIndex++
+	}
+	sqlPart = fmt.Sprintf("(%s)", strings.Join(parts, " OR "))
+	return
+}
+
+// Build NOT LIKE query filter
+func (s *postgresDatabaseQuery) buildFilterNotLike(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
+
+	args = make([]any, 0)
+	parts := make([]string, 0)
+
+	for _, value := range qf.GetValues() {
+		str := parseWildcards(fmt.Sprintf("%v", value))
+		parts = append(parts, fmt.Sprintf("(lower(%s) NOT LIKE lower($%d))", fieldName, varIndex))
 		args = append(args, str)
 		varIndex++
 	}

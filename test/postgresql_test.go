@@ -103,5 +103,4 @@ func (s *PostgresqlTestSuite) TestDatabaseSet() {
 	assert.Nil(s.T(), err)
 	assert.NotEqual(s.T(), total, 0)
 	assert.NotEqual(s.T(), len(group), 0)
-
 }
