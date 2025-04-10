@@ -364,11 +364,11 @@ func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.Q
 // Build the cast
 func (s *postgresDatabaseQuery) getCastField(fieldName string, operator database.QueryOperator) (result string) {
 
-	//check if field's name is in map of "data" fields
-	//if it is not, treat it as a native column name
-	//this is introduced with aim to use native indices for large
-	//datasets of >1M records.
-	_, ok := s.filedNameToType[strings.ToLower(fieldName)]
+	// Check if field's name is in map of "data" fields
+	// if it is not, treat it as a native column name
+	// this is introduced with aim to use native indices for large
+	// datasets of >1M records.
+	_, ok := s.filedNameToType[fieldName]
 	if !ok {
 		return fieldName
 	}
@@ -384,7 +384,7 @@ func (s *postgresDatabaseQuery) getCastField(fieldName string, operator database
 		dataField = fmt.Sprintf("data#>>'{%s}'", fields)
 	}
 
-	fieldTypeAsString, ok := s.filedNameToType[strings.ToLower(fieldName)]
+	fieldTypeAsString, ok := s.filedNameToType[fieldName]
 	if !ok {
 		return dataField
 	}
@@ -470,6 +470,68 @@ func (s *postgresDatabaseQuery) convertAnyArray(value any) (result []any) {
 }
 
 func entityFieldsToTypesMap(ef entity.EntityFactory) map[string]string {
+
+	v := ef()
+	fieldsMap := make(map[string]string)
+	typ := reflect.TypeOf(v)
+
+	extractFields(fieldsMap, typ, "")
+	return fieldsMap
+}
+
+func extractFields(fieldsMap map[string]string, t reflect.Type, prefix string) {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return
+	}
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		ft := field.Type
+
+		// Get json tag or fallback to field name
+		jsonTag := field.Tag.Get("json")
+		if jsonTag == "" {
+			jsonTag = field.Name
+		}
+
+		// Compose name with prefix
+		fieldName := jsonTag
+		if prefix != "" {
+			fieldName = prefix + "." + fieldName
+		}
+
+		// Check if embedded (anonymous) field
+		if field.Anonymous && ft.Kind() == reflect.Struct {
+			extractFields(fieldsMap, ft, prefix) // Inherit fields without prefixing field name
+			continue
+		}
+
+		fieldsMap[fieldName] = ft.String()
+
+		// Recursively handle struct fields
+		switch ft.Kind() {
+		case reflect.Struct:
+			extractFields(fieldsMap, ft, fieldName)
+		case reflect.Ptr:
+			if ft.Elem().Kind() == reflect.Struct {
+				extractFields(fieldsMap, ft.Elem(), fieldName)
+			}
+		case reflect.Slice, reflect.Array:
+			elem := ft.Elem()
+			if elem.Kind() == reflect.Struct {
+				extractFields(fieldsMap, elem, fieldName+"[]")
+			}
+		default:
+			continue
+		}
+	}
+}
+
+// DEPRECATED - see the new implementation: entityFieldsToTypesMap using recursive
+func entityFieldsToTypesMapOld(ef entity.EntityFactory) map[string]string {
 
 	v := ef()
 
