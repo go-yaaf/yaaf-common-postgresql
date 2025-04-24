@@ -81,8 +81,10 @@ func (s *postgresDatabaseQuery) buildCriteria(startFrom int) (where string, args
 
 	// If range is defined, add it to the filters
 	if len(s.rangeField) > 0 {
-		rangeFilter := []database.QueryFilter{database.F(s.rangeField).Between(s.rangeFrom, s.rangeTo)}
-		s.allFilters = append(s.allFilters, rangeFilter)
+		if (s.rangeFrom != 0) || (s.rangeTo != 0) {
+			rangeFilter := []database.QueryFilter{database.F(s.rangeField).Between(s.rangeFrom, s.rangeTo)}
+			s.allFilters = append(s.allFilters, rangeFilter)
+		}
 	}
 
 	// Initialize match all (AND) conditions
