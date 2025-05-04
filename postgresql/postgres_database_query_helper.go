@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/go-yaaf/yaaf-common/database"
@@ -335,13 +336,25 @@ func (s *postgresDatabaseQuery) buildFilterIn(fieldName string, qf database.Quer
 	}
 
 	// Special case for CIDR
-	if len(list) == 1 {
+
+	if isValidCIDRPattern(list) {
 		str := fmt.Sprintf("%v", list[0])
 		if _, _, err := net.ParseCIDR(str); err != nil {
 			return fmt.Sprintf("((%s)::inet <<= '%s'::cidr)", fieldName, str), nil
 		}
 	}
 	return fmt.Sprintf("(%s = ANY($%d))", fieldName, varIndex), []any{list}
+}
+
+// Check if the provided parameter is CIDR
+func isValidCIDRPattern(list []any) bool {
+	if len(list) != 1 {
+		return false
+	}
+	str := fmt.Sprintf("%v", list[0])
+	cidrRegex := `^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)/(3[0-2]|[12]?\d)$`
+	re := regexp.MustCompile(cidrRegex)
+	return re.MatchString(str)
 }
 
 // Build NOT IN query filter
