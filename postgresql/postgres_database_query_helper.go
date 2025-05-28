@@ -226,7 +226,11 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 		arr := toArray(values)
 		return fmt.Sprintf("NOT %s @> '[%s]'", fieldName, arr), nil
 	case database.Empty:
-		return fmt.Sprintf("((%s = '') IS NOT FALSE)", fieldName), values
+		return fmt.Sprintf("((%s = '') IS NOT FALSE)", fieldName), nil
+	case database.True:
+		return fmt.Sprintf("((%s) IS TRUE)", fieldName), nil
+	case database.False:
+		return fmt.Sprintf("((%s) IS FALSE)", fieldName), nil
 	default:
 		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), values
 	}
