@@ -231,6 +231,10 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 		return fmt.Sprintf("((%s) IS TRUE)", fieldName), nil
 	case database.False:
 		return fmt.Sprintf("((%s) IS FALSE)", fieldName), nil
+	case database.WithFlag:
+		return fmt.Sprintf("(%s & $%d = $%d)", fieldName, varIndex, varIndex), values
+	case database.WithNoFlag:
+		return fmt.Sprintf("(%s & $%d <> $%d)", fieldName, varIndex, varIndex), values
 	default:
 		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), values
 	}

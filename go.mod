@@ -4,8 +4,8 @@ go 1.23.0
 
 require (
 	cloud.google.com/go/cloudsqlconn v1.13.2
-	github.com/go-yaaf/yaaf-common v1.2.155
-	github.com/go-yaaf/yaaf-common-redis v1.2.55
+	github.com/go-yaaf/yaaf-common v1.2.157
+	github.com/go-yaaf/yaaf-common-redis v1.2.56
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/lib/pq v1.10.9
 	github.com/stretchr/testify v1.10.0
@@ -21,7 +21,7 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -32,7 +32,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jaevor/go-nanoid v1.4.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/redis/go-redis/v9 v9.9.0 // indirect
+	github.com/redis/go-redis/v9 v9.11.0 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.54.0 // indirect

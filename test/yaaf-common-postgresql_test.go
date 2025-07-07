@@ -12,7 +12,7 @@ import (
 func TestGroupQuery(t *testing.T) {
 	skipCI(t)
 
-	dbURI := fmt.Sprintf("postgres://user:pwd@host:5432/postgres")
+	dbURI := fmt.Sprintf("")
 	db, err := postgresql.NewPostgresDatabase(dbURI)
 	require.NoError(t, err)
 
@@ -29,7 +29,7 @@ func TestGroupQuery(t *testing.T) {
 func TestInQueryFilter(t *testing.T) {
 	skipCI(t)
 
-	dbURI := fmt.Sprintf("postgres://user:pwd@host:5432/postgres")
+	dbURI := fmt.Sprintf("")
 
 	db, err := postgresql.NewPostgresDatabase(dbURI)
 	require.NoError(t, err)
@@ -80,7 +80,7 @@ func getTableName(table string, keys ...string) (tblName string) {
 func TestContainsQuery(t *testing.T) {
 	skipCI(t)
 
-	dbURI := fmt.Sprintf("postgres://user:pwd@host:5432/postgres")
+	dbURI := fmt.Sprintf("")
 
 	db, err := postgresql.NewPostgresDatabase(dbURI)
 	require.NoError(t, err)
@@ -126,6 +126,26 @@ func TestInSubQuery(t *testing.T) {
 		Filter(database.F("id").InSubQuery("userId", subQuery)).
 		Limit(100).
 		Find(accountId)
+
+	require.NoError(t, er)
+	require.NotNil(t, result)
+	fmt.Println(total)
+
+	fmt.Println("Done")
+}
+
+func TestFlagsQuery(t *testing.T) {
+	skipCI(t)
+
+	dbURI := ""
+
+	db, err := postgresql.NewPostgresDatabase(dbURI)
+	require.NoError(t, err)
+
+	result, total, er := db.Query(NewUser).
+		Filter(database.F("roles").WithFlag(16)).
+		Limit(100).
+		Find("")
 
 	require.NoError(t, er)
 	require.NotNil(t, result)
