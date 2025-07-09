@@ -182,9 +182,11 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 
 	values := qf.GetValues()
 
-	// Ignore empty values
-	if qf.GetOperator() != database.Empty {
-		if len(values) == 0 {
+	// Ignore empty values for operators Empty | True | False
+	if len(values) == 0 {
+		if qf.GetOperator() == database.Empty ||
+			qf.GetOperator() == database.True ||
+			qf.GetOperator() == database.False {
 			return "", nil
 		}
 	}
