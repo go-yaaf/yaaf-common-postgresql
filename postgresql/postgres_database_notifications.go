@@ -82,7 +82,7 @@ func (dbs *PostgresDatabase) Subscribe(ef entity.EntityFactory, handler Notifica
 				continue
 			}
 
-			logger.Info("DB LISTEN established on channel=%s (held %.0fs so far=0)", channel)
+			logger.Info("DB LISTEN established on channel=%s", channel)
 
 			// Inner receive loop; reset backoff after a successful (re)subscribe
 			backoffAttempt = 0
