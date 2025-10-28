@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"time"
 
 	entity "github.com/go-yaaf/yaaf-common/entity"
@@ -18,64 +19,176 @@ type NotificationPayload struct {
 
 type NotificationHandler func(np NotificationPayload)
 
-// Subscribe subscribes to a specified PostgreSQL channel to receive notifications
-// and ensures the trigger and notify function are created in the database.
+// Subscribe subscribes to entity change notifications with auto-reconnect & keepalive.
 //
-// Parameters:
-//   - channel: The name of the PostgreSQL channel to listen for notifications.
-//   - handler: A callback function of type `NotificationHandler` that processes
-//     the notification payload.
-//
-// Return Value:
-//   - error: Returns an error if there is a failure in setting up the trigger,
-//     subscribing to the channel, or receiving notifications.
+// Resilience features:
+//   - Dedicated pooled connection held for LISTEN
+//   - Exponential backoff with jitter on errors (incl. "conn closed")
+//   - Periodic keepalive (SELECT 1) to avoid idle reaping
+//   - Context-aware shutdown
 func (dbs *PostgresDatabase) Subscribe(ef entity.EntityFactory, handler NotificationHandler) error {
+
 	ctx := context.Background()
 
-	// Ensure the trigger function and trigger are created
-	err := dbs.ensureNotifyTrigger(ctx, ef)
-	if err != nil {
+	// One-time DDL guard
+	if err := dbs.ensureNotifyTrigger(ctx, ef); err != nil {
 		return fmt.Errorf("failed to ensure trigger setup: %w", err)
 	}
 
-	// Acquire a connection for listening
-	conn, err := dbs.poolDb.Acquire(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to acquire connection: %w", err)
-	}
-
 	channel := fmt.Sprintf("%s_changes", ef().TABLE())
-
-	// Start listening to the channel
-	_, err = conn.Exec(ctx, fmt.Sprintf("LISTEN %s", channel))
-	if err != nil {
-		conn.Release()
-		return fmt.Errorf("failed to listen to channel %s: %w", channel, err)
+	if !isSafeChannel(channel) {
+		return fmt.Errorf("unsafe channel name: %q", channel)
 	}
 
-	// Handle notifications on a separate goroutine
+	// Tunables
+	const (
+		keepaliveEvery = 2 * time.Minute // ping cadence during idle
+		waitTimeout    = 2 * time.Minute // how long WaitForNotification blocks before we ping
+		backoffBase    = 250 * time.Millisecond
+		backoffMax     = 15 * time.Second
+		maxBackoffExp  = 6 // base<<6 ~= ~16s cap before clamping to backoffMax
+	)
+
+	// Reconnect loop
 	go func() {
-		defer conn.Release()
+		backoffAttempt := 0
+
 		for {
-			notification, err := conn.Conn().WaitForNotification(ctx)
+			// Respect caller cancellation
+			if ctx.Err() != nil {
+				return
+			}
+
+			// Acquire a dedicated connection from the pool
+			pconn, err := dbs.poolDb.Acquire(ctx)
 			if err != nil {
-				logger.Error("Error receiving notification from DB: %v", err)
-				time.Sleep(time.Second) // Retry after a brief delay
+				logger.Error("DB LISTEN acquire failed: %v", err)
+				sleepCtx(ctx, jittered(backoffBase, backoffAttempt, int(backoffMax), maxBackoffExp))
+				backoffAttempt++
 				continue
 			}
 
-			var payload NotificationPayload
-			payload.Entity = ef() // Create an instance of the entity using the factory
-			if err := json.Unmarshal([]byte(notification.Payload), &payload); err != nil {
-				logger.Error("Error unmarshaling DB notification payload: %v", err)
+			conn := pconn.Conn()
+			acquiredAt := time.Now()
+
+			// LISTEN (quote identifier safely)
+			channel := fmt.Sprintf("%s_changes", ef().TABLE())
+			listenSQL := "LISTEN " + channel
+			if _, err := conn.Exec(ctx, listenSQL); err != nil {
+				logger.Error("DB LISTEN exec failed on %s: %v", channel, err)
+				pconn.Release()
+				sleepCtx(ctx, jittered(backoffBase, backoffAttempt, int(backoffMax), maxBackoffExp))
+				backoffAttempt++
 				continue
 			}
 
-			// Process the notification
-			handler(payload)
+			logger.Info("DB LISTEN established on channel=%s (held %.0fs so far=0)", channel)
+
+			// Inner receive loop; reset backoff after a successful (re)subscribe
+			backoffAttempt = 0
+			lastPing := time.Now()
+
+			for {
+				// If caller canceled, cleanly unlisten and release
+				if ctx.Err() != nil {
+					// Best effort UNLISTEN; ignore errors
+					_, _ = conn.Exec(context.Background(), "UNLISTEN *")
+					pconn.Release()
+					return
+				}
+
+				// Wait with a timeout so we can ping periodically
+				waitCtx, cancel := context.WithTimeout(ctx, waitTimeout)
+				notification, err := conn.WaitForNotification(waitCtx)
+				cancel()
+
+				switch {
+				case err == nil && notification != nil:
+					var payload NotificationPayload
+					payload.Entity = ef()
+					if uerr := json.Unmarshal([]byte(notification.Payload), &payload); uerr != nil {
+						logger.Error("DB notify unmarshal error: %v", uerr)
+						continue
+					}
+					// Process user handler (protect against panics)
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								logger.Error("panic in notification handler: %v", r)
+							}
+						}()
+						handler(payload)
+					}()
+
+				case err == context.DeadlineExceeded:
+					// Idle too long; send a keepalive ping to avoid idle disconnects
+					if time.Since(lastPing) >= keepaliveEvery {
+						if _, pingErr := conn.Exec(ctx, "SELECT 1"); pingErr != nil {
+							logger.Warn("DB LISTEN keepalive failed (will reconnect): %v", pingErr)
+							// Break to reconnect logic below
+							err = pingErr
+						} else {
+							lastPing = time.Now()
+						}
+					}
+					// Continue inner loop unless ping failed
+					if err == context.DeadlineExceeded {
+						continue
+					}
+					// else err was set to pingErr, fallthrough to reconnect
+
+				default:
+					// Any error from WaitForNotification (incl. "conn closed") triggers reconnect
+				}
+
+				if err != nil {
+					// Release and back off before trying to re-subscribe
+					pconn.Release()
+					logger.Warn("DB LISTEN loop error on %s (held %.0fs): %v",
+						channel, time.Since(acquiredAt).Seconds(), err)
+					sleepCtx(ctx, jittered(backoffBase, backoffAttempt, int(backoffMax), maxBackoffExp))
+					backoffAttempt++
+					break // break inner loop → outer reconnect
+				}
+			}
 		}
 	}()
+
 	return nil
+}
+
+// isSafeChannel ensures we only interpolate simple identifiers in LISTEN.
+func isSafeChannel(s string) bool {
+	for _, r := range s {
+		if !(r == '_' || r == '-' || (r >= '0' && r <= '9') ||
+			(r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')) {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+func jittered(base time.Duration, attempt, maxExp int, maxCap time.Duration) time.Duration {
+	shift := attempt
+	if shift > maxExp {
+		shift = maxExp
+	}
+	d := base << shift
+	if d > maxCap {
+		d = maxCap
+	}
+	// add 0–250ms jitter
+	j := time.Duration(rand.Intn(250)) * time.Millisecond
+	return d + j
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+	case <-t.C:
+	}
 }
 
 // ensureNotifyTrigger ensures that the `notify_stream_changes` function and trigger exist in the database.
