@@ -116,9 +116,10 @@ func (dbs *PostgresDatabase) Subscribe(ef entity.EntityFactory, handler Notifica
 							err = pingErr
 						} else {
 							lastPing = time.Now()
+							err = nil
 						}
 					}
-					if pgconn.Timeout(err) {
+					if err == nil {
 						continue
 					}
 
