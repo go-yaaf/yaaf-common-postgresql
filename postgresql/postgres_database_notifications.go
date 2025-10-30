@@ -3,12 +3,14 @@ package postgresql
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"time"
 
 	entity "github.com/go-yaaf/yaaf-common/entity"
 	"github.com/go-yaaf/yaaf-common/logger"
+	"github.com/jackc/pgconn"
 )
 
 type NotificationPayload struct {
@@ -27,10 +29,8 @@ type NotificationHandler func(np NotificationPayload)
 //   - Periodic keepalive (SELECT 1) to avoid idle reaping
 //   - Context-aware shutdown
 func (dbs *PostgresDatabase) Subscribe(ef entity.EntityFactory, handler NotificationHandler) error {
-
 	ctx := context.Background()
 
-	// One-time DDL guard
 	if err := dbs.ensureNotifyTrigger(ctx, ef); err != nil {
 		return fmt.Errorf("failed to ensure trigger setup: %w", err)
 	}
@@ -40,26 +40,22 @@ func (dbs *PostgresDatabase) Subscribe(ef entity.EntityFactory, handler Notifica
 		return fmt.Errorf("unsafe channel name: %q", channel)
 	}
 
-	// Tunables
 	const (
-		keepaliveEvery = 2 * time.Minute // ping cadence during idle
-		waitTimeout    = 2 * time.Minute // how long WaitForNotification blocks before we ping
+		keepaliveEvery = 2 * time.Minute
+		waitTimeout    = 2 * time.Minute
 		backoffBase    = 250 * time.Millisecond
 		backoffMax     = 15 * time.Second
-		maxBackoffExp  = 6 // base<<6 ~= ~16s cap before clamping to backoffMax
+		maxBackoffExp  = 6
 	)
 
-	// Reconnect loop
 	go func() {
 		backoffAttempt := 0
 
 		for {
-			// Respect caller cancellation
 			if ctx.Err() != nil {
 				return
 			}
 
-			// Acquire a dedicated connection from the pool
 			pconn, err := dbs.poolDb.Acquire(ctx)
 			if err != nil {
 				logger.Error("DB LISTEN acquire failed: %v", err)
@@ -71,8 +67,6 @@ func (dbs *PostgresDatabase) Subscribe(ef entity.EntityFactory, handler Notifica
 			conn := pconn.Conn()
 			acquiredAt := time.Now()
 
-			// LISTEN (quote identifier safely)
-			channel := fmt.Sprintf("%s_changes", ef().TABLE())
 			listenSQL := "LISTEN " + channel
 			if _, err := conn.Exec(ctx, listenSQL); err != nil {
 				logger.Error("DB LISTEN exec failed on %s: %v", channel, err)
@@ -84,20 +78,16 @@ func (dbs *PostgresDatabase) Subscribe(ef entity.EntityFactory, handler Notifica
 
 			logger.Info("DB LISTEN established on channel=%s", channel)
 
-			// Inner receive loop; reset backoff after a successful (re)subscribe
 			backoffAttempt = 0
 			lastPing := time.Now()
 
 			for {
-				// If caller canceled, cleanly unlisten and release
 				if ctx.Err() != nil {
-					// Best effort UNLISTEN; ignore errors
 					_, _ = conn.Exec(context.Background(), "UNLISTEN *")
 					pconn.Release()
 					return
 				}
 
-				// Wait with a timeout so we can ping periodically
 				waitCtx, cancel := context.WithTimeout(ctx, waitTimeout)
 				notification, err := conn.WaitForNotification(waitCtx)
 				cancel()
@@ -110,7 +100,6 @@ func (dbs *PostgresDatabase) Subscribe(ef entity.EntityFactory, handler Notifica
 						logger.Error("DB notify unmarshal error: %v", uerr)
 						continue
 					}
-					// Process user handler (protect against panics)
 					func() {
 						defer func() {
 							if r := recover(); r != nil {
@@ -120,35 +109,28 @@ func (dbs *PostgresDatabase) Subscribe(ef entity.EntityFactory, handler Notifica
 						handler(payload)
 					}()
 
-				case err == context.DeadlineExceeded:
-					// Idle too long; send a keepalive ping to avoid idle disconnects
+				case pgconn.Timeout(err) || errors.Is(err, context.DeadlineExceeded):
 					if time.Since(lastPing) >= keepaliveEvery {
 						if _, pingErr := conn.Exec(ctx, "SELECT 1"); pingErr != nil {
 							logger.Warn("DB LISTEN keepalive failed (will reconnect): %v", pingErr)
-							// Break to reconnect logic below
 							err = pingErr
 						} else {
 							lastPing = time.Now()
 						}
 					}
-					// Continue inner loop unless ping failed
-					if err == context.DeadlineExceeded {
+					if pgconn.Timeout(err) {
 						continue
 					}
-					// else err was set to pingErr, fallthrough to reconnect
 
-				default:
-					// Any error from WaitForNotification (incl. "conn closed") triggers reconnect
 				}
 
 				if err != nil {
-					// Release and back off before trying to re-subscribe
 					pconn.Release()
 					logger.Warn("DB LISTEN loop error on %s (held %.0fs): %v",
 						channel, time.Since(acquiredAt).Seconds(), err)
 					sleepCtx(ctx, jittered(backoffBase, backoffAttempt, int(backoffMax), maxBackoffExp))
 					backoffAttempt++
-					break // break inner loop → outer reconnect
+					break
 				}
 			}
 		}
