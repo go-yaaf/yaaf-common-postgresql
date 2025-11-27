@@ -32,8 +32,8 @@ This library is built around the [Pure Go Postgres driver for database/sql](http
 
 ### Prerequisites
 
-*   Go 1.18 or higher
-*   PostgreSQL database
+*   Go 1.23 or higher
+*   Postgres SQL database
 
 ### Installation
 
@@ -47,7 +47,7 @@ go get -v -t github.com/go-yaaf/yaaf-common-postgresql
 
 #### Connecting to the Database
 
-To connect to a PostgreSQL database, create a new `PostgresDatabase` instance using a connection string.
+To connect to a Postgres SQL database, create a new `PostgresDatabase` instance using a connection string.
 
 ```go
 package main
@@ -66,7 +66,7 @@ func main() {
 	}
 	defer db.Close()
 
-	// Ping the database to ensure a connection is established
+	// Ping the database to ensure a connection is established (5 retries, 2 seconds interval)
 	if err := db.Ping(5, 2); err != nil {
 		panic(err)
 	}
@@ -92,13 +92,23 @@ type Hero struct {
 
 func (h *Hero) TABLE() string { return "heroes" }
 
-func NewHero(id, name, power string, friends []string) *Hero {
+// NewHero is a factory method to create new instance
+func NewHero() entity.Entity {
 	return &Hero{
-		BaseEntity: entity.NewBaseEntity(id),
-		Name:       name,
-		Power:      power,
-		Friends:    friends,
+		BaseEntity: entity.NewBaseEntity(),
+		Name:       "",
+		Power:      "",
+		Friends:    make([]string, 0),
 	}
+}
+// NewHeroWithParams is a factory method to create new instance with initial parameters
+func NewHeroWithParams(id, name, power string, friends []string) entity.Entity {
+	hero := NewHero()
+	hero.(*Hero).Id = id
+	hero.(*Hero).Name = name
+	hero.(*Hero).Power = power
+	hero.(*Hero).Friends = friends
+	return hero
 }
 ```
 
@@ -107,7 +117,7 @@ func NewHero(id, name, power string, friends []string) *Hero {
 **Create**
 
 ```go
-hero := NewHero("1", "Superman", "Flight", []string{"Batman", "Wonder Woman"})
+hero := NewHeroWithParams("1", "Superman", "Flight", []string{"Batman", "Wonder Woman"})
 if _, err := db.Insert(hero); err != nil {
     // Handle error
 }
@@ -116,8 +126,7 @@ if _, err := db.Insert(hero); err != nil {
 **Read**
 
 ```go
-factory := func() entity.Entity { return &Hero{} }
-retrievedHero, err := db.Get(factory, "1")
+retrievedHero, err := db.Get(NewHero, "1")
 if err != nil {
     // Handle error
 }
@@ -126,17 +135,27 @@ if err != nil {
 **Update**
 
 ```go
-heroToUpdate := retrievedHero.(*Hero)
-heroToUpdate.Power = "Super Strength"
-if _, err := db.Update(heroToUpdate); err != nil {
+retrievedHero, err := db.Get(NewHero, "1")
+if err != nil {
     // Handle error
+	return
+}
+
+// Change attributes and update the database
+retrievedHero.(*Hero).Name = "New Superman"
+retrievedHero.(*Hero).Power = "Super Strength"
+if updated, err := db.Update(retrievedHero); err != nil {
+    // Handle error
+} else {
+	fmt.Println("hero updated", updated.ID(), updated.NAME())
+
 }
 ```
 
 **Delete**
 
 ```go
-if err := db.Delete(factory, "1"); err != nil {
+if err := db.Delete(NewHero, "1"); err != nil {
     // Handle error
 }
 ```
@@ -147,8 +166,8 @@ if err := db.Delete(factory, "1"); err != nil {
 
 ```go
 heroes := []entity.Entity{
-    NewHero("2", "Batman", "Rich", []string{"Superman", "Robin"}),
-    NewHero("3", "Wonder Woman", "Super Strength", []string{"Superman", "Steve Trevor"}),
+    NewHeroWithParams("2", "Batman", "Rich", []string{"Superman", "Robin"}),
+    NewHeroWithParams("3", "Wonder Woman", "Super Strength", []string{"Superman", "Steve Trevor"}),
 }
 if _, err := db.BulkInsert(heroes); err != nil {
     // Handle error
@@ -168,7 +187,7 @@ if _, err := db.BulkUpdate(heroesToUpdate); err != nil {
 
 ```go
 idsToDelete := []string{"2", "3"}
-if _, err := db.BulkDelete(factory, idsToDelete); err != nil {
+if _, err := db.BulkDelete(NewHero, idsToDelete); err != nil {
     // Handle error
 }
 ```
@@ -179,7 +198,7 @@ This library provides a simple query builder to perform queries on the database.
 
 ```go
 // Find all heroes with the power 'Super Strength'
-query := db.Query(factory).Eq("power", "Super Strength")
+query := db.Query(NewHero).Eq(database.F("power").Eq("Super Strength"))
 results, err := query.Find()
 if err != nil {
     // Handle error
@@ -196,6 +215,8 @@ for _, item := range results {
 **Create Table and Indexes**
 
 ```go
+
+// This DDL create a table name: heroes and index the json fields: "name" and "power"
 ddl := map[string][]string{
     "heroes": {"name", "power"},
 }
@@ -214,7 +235,7 @@ if err := db.DropTable("heroes"); err != nil {
 
 ## Running Tests
 
-To run the tests for this library, you'll need a running PostgreSQL instance. The tests use the following connection string by default: `postgresql://user:password@localhost:5432/test_db`.
+To run the tests for this library, you'll need a running Postgres SQL instance. The tests use the following connection string by default: `postgresql://user:password@localhost:5432/test_db`.
 
 You can run the tests with the following command:
 
