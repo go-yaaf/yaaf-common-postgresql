@@ -7,14 +7,13 @@
 ![License](https://img.shields.io/dub/l/vibe-d.svg)
 
 ## Overview
+`yaaf-common-postgres` is a library that provides a Postgres database concrete implementation of the ORM layer defined in the `IDatabase` interface in `yaaf-common` framework. 
+It simplifies database operations by offering a convenient interface for interacting with a Postgres database, including support for SSH tunneling and accessing managed instances on GCP. 
 
-Postgresql object database implementation of `yaaf-common` IDatabase interface
-
-## About
-This library is the Postgresql concrete implementation of the ORM layer defined in the `IDatabase` interface in `yaaf-common` library.
-This implementation refers to the object database concepts only, the underlying database includes table per domain model entity,
-each table has only two fields: `id` (of type string) and `data` (of type jsonb).
+This implementation refers to the object database concepts only, the underlying database includes table per domain model entity, 
+each table has only two fields: `id` (of type string) and `data` (of type jsonb). 
 Domain model entities are stored as Json documents (which are indexed by json keys) hence the database is used like a document storage (similar to Elasticsearch, MongoDB, Couchbase and more)
+The main philosophy of that concept is to avoid changing the underlying database schema for each domain model structure changes and it simplifies the development process.
 
 This library is built around the [Pure Go Postgres driver for database/sql](https://github.com/lib/pq)
 
@@ -47,7 +46,7 @@ go get -v -t github.com/go-yaaf/yaaf-common-postgresql
 
 #### Connecting to the Database
 
-To connect to a Postgres SQL database, create a new `PostgresDatabase` instance using a connection string.
+To connect to a Postgres SQL database, create a new `Postgres Database` instance using a connection string.
 
 ```go
 package main
@@ -61,6 +60,41 @@ func main() {
 	// Connection string format: postgresql://user:password@host:port/database_name
 	uri := "postgresql://user:password@localhost:5432/test_db"
 	db, err := postgresql.NewPostgresDatabase(uri)
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	// Ping the database to ensure a connection is established (5 retries, 2 seconds interval)
+	if err := db.Ping(5, 2); err != nil {
+		panic(err)
+	}
+	fmt.Println("Successfully connected to the database!")
+}
+```
+
+You can also create a new `Postgres Database` instance with underlying message bus.
+In this case, any structure changes in the database (e.g. create, update, delete) will be published to the message bus.
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/go-yaaf/yaaf-common-postgresql/postgresql"
+	"github.com/go-yaaf/yaaf-common-redis/redis"
+)
+
+func main() {
+	redisUri := "redis://localhost:6379/0"
+	messageBus, err := redis.NewRedisMessageBus(redisUri)
+	if err != nil {
+		panic(err)
+	}
+	
+	// Connection string format: postgresql://user:password@host:port/database_name
+	uri := "postgresql://user:password@localhost:5432/test_db"
+	db, err := postgresql.NewPostgresDatabaseWithMessageBus(uri, messageBus)
 	if err != nil {
 		panic(err)
 	}
