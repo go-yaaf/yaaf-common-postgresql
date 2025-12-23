@@ -4,8 +4,8 @@ go 1.24.0
 
 require (
 	cloud.google.com/go/cloudsqlconn v1.19.1
-	github.com/go-yaaf/yaaf-common v1.2.180
-	github.com/go-yaaf/yaaf-common-redis v1.2.63
+	github.com/go-yaaf/yaaf-common v1.2.181
+	github.com/go-yaaf/yaaf-common-redis v1.2.64
 	github.com/jackc/pgconn v1.14.3
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/stretchr/testify v1.11.1
