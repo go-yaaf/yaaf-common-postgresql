@@ -3,12 +3,11 @@ module github.com/go-yaaf/yaaf-common-postgresql
 go 1.24.0
 
 require (
-	cloud.google.com/go/cloudsqlconn v1.19.0
-	github.com/go-yaaf/yaaf-common v1.2.178
-	github.com/go-yaaf/yaaf-common-redis v1.2.62
+	cloud.google.com/go/cloudsqlconn v1.19.1
+	github.com/go-yaaf/yaaf-common v1.2.180
+	github.com/go-yaaf/yaaf-common-redis v1.2.63
 	github.com/jackc/pgconn v1.14.3
 	github.com/jackc/pgx/v5 v5.7.6
-	github.com/lib/pq v1.10.9
 	github.com/stretchr/testify v1.11.1
 )
 
@@ -33,7 +32,6 @@ require (
 	github.com/jackc/pgproto3/v2 v2.3.3 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/jaevor/go-nanoid v1.4.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/redis/go-redis/v9 v9.17.2 // indirect
 	go.opencensus.io v0.24.0 // indirect
@@ -42,8 +40,6 @@ require (
 	go.opentelemetry.io/otel v1.39.0 // indirect
 	go.opentelemetry.io/otel/metric v1.39.0 // indirect
 	go.opentelemetry.io/otel/trace v1.39.0 // indirect
-	go.uber.org/multierr v1.11.0 // indirect
-	go.uber.org/zap v1.27.1 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
