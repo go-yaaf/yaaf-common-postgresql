@@ -3,11 +3,12 @@ module github.com/go-yaaf/yaaf-common-postgresql
 go 1.24.0
 
 require (
-	cloud.google.com/go/cloudsqlconn v1.19.1
+	cloud.google.com/go/cloudsqlconn v1.19.0
 	github.com/go-yaaf/yaaf-common v1.2.178
 	github.com/go-yaaf/yaaf-common-redis v1.2.62
 	github.com/jackc/pgconn v1.14.3
 	github.com/jackc/pgx/v5 v5.7.6
+	github.com/lib/pq v1.10.9
 	github.com/stretchr/testify v1.11.1
 )
 
