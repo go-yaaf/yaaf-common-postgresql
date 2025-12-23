@@ -2,11 +2,15 @@ package test
 
 import (
 	"fmt"
-	"github.com/go-yaaf/yaaf-common-postgresql/postgresql"
-	"github.com/go-yaaf/yaaf-common/database"
-	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
+
+	"github.com/go-yaaf/yaaf-common-postgresql/postgresql"
+	"github.com/go-yaaf/yaaf-common/database"
+	"github.com/go-yaaf/yaaf-common/entity"
+	"github.com/stretchr/testify/require"
+
+	. "github.com/go-yaaf/yaaf-common-postgresql/test/model"
 )
 
 func TestGroupQuery(t *testing.T) {
@@ -150,6 +154,27 @@ func TestFlagsQuery(t *testing.T) {
 	require.NoError(t, er)
 	require.NotNil(t, result)
 	fmt.Println(total)
+
+	fmt.Println("Done")
+}
+
+func TestQueryAccounts(t *testing.T) {
+	skipCI(t)
+
+	dbURI := fmt.Sprintf("")
+	db, err := postgresql.NewPostgresDatabase(dbURI)
+	require.NoError(t, err)
+
+	cb := func(in entity.Entity) (out entity.Entity) {
+		key := fmt.Sprintf("account:%s", in.ID())
+		fmt.Println(key)
+		return in
+	}
+	list, total, err := db.Query(NewAccount).Limit(100000).Apply(cb).Find()
+	require.NoError(t, err)
+
+	fmt.Println(total)
+	fmt.Println(len(list))
 
 	fmt.Println("Done")
 }
