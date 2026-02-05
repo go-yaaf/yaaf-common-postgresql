@@ -1,0 +1,158 @@
+# yaaf-common-postgresql
+
+> PostgreSQL database middleware implementing the GO-YAAF ORM layer
+
+## Overview
+
+yaaf-common-postgresql provides a concrete PostgreSQL implementation of the IDatabase interface defined in the yaaf-common framework. It uses a document-oriented approach where entities are stored as JSON documents in PostgreSQL tables with only two fields: `id` (string) and `data` (jsonb).
+
+## Key Features
+
+- Full implementation of yaaf-common IDatabase and IDatastore interfaces
+- Document-oriented storage using PostgreSQL's JSONB data type
+- CRUD and bulk operations for entities
+- Simple query language for database queries
+- DDL operations (create/drop tables and indexes)
+- Cloud SQL Proxy support for managed GCP instances
+- Pub/Sub mechanism for entity change notifications
+- Built on Pure Go Postgres driver (pgx/v5)
+
+## Architecture
+
+### Storage Model
+- Each entity type has its own table
+- Tables have two columns: `id` (primary key) and `data` (JSONB)
+- Entities are serialized as JSON documents
+- JSON fields can be indexed for efficient queries
+- Avoids schema migrations for domain model changes
+
+### Connection Options
+- Direct PostgreSQL connection via connection string
+- Cloud SQL Proxy for managed GCP instances
+- Optional message bus integration for change notifications
+
+## Directory Structure
+
+```
+.
+├── postgresql/              # Core implementation
+│   ├── postgres_database.go              # Main database interface implementation
+│   ├── postgres_database_query.go        # Query building and execution
+│   ├── postgres_database_query_helper.go # Query helper functions
+│   └── postgres_database_notifications.go # Pub/sub notifications
+├── test/                    # Tests and test models
+│   ├── postgresql_test.go              # Main test suite
+│   ├── postgresql_bus_test.go          # Message bus tests
+│   ├── postgresql_setfields_test.go    # Field update tests
+│   ├── data_for_test.go                # Test data generators
+│   └── model/
+│       └── Account.go                   # Test entity model
+├── go.mod                   # Go module definition
+└── README.md               # Project documentation
+```
+
+## Core Components
+
+### postgresql/postgres_database.go
+Main entry point providing:
+- `NewPostgresDatabase(uri)` - Create database instance
+- `NewPostgresDatabaseWithMessageBus(uri, messageBus)` - Create with pub/sub support
+- CRUD operations: Get, Insert, Update, Delete
+- Bulk operations: BulkInsert, BulkUpdate, BulkDelete
+- DDL operations: ExecuteDDL, DropTable
+- Connection management: Ping, Close
+
+### postgresql/postgres_database_query.go
+Query interface implementation:
+- Query builder pattern
+- Filter operations (Eq, Ne, Gt, Lt, In, etc.)
+- Sorting and pagination
+- Aggregations (Count, Sum, etc.)
+- List and Find operations
+
+### postgresql/postgres_database_notifications.go
+Change notification system:
+- Publishes entity changes to message bus
+- Supports create, update, delete events
+- Integration with yaaf-common-redis message bus
+
+## Dependencies
+
+Key dependencies from go.mod:
+- github.com/go-yaaf/yaaf-common v1.2.182 - Core framework interfaces
+- github.com/jackc/pgx/v5 v5.8.0 - Pure Go PostgreSQL driver
+- cloud.google.com/go/cloudsqlconn v1.20.0 - Cloud SQL Proxy support
+- github.com/go-yaaf/yaaf-common-redis v1.2.65 - Message bus integration
+
+## Usage Examples
+
+### Basic Connection
+```go
+uri := "postgresql://user:password@localhost:5432/test_db"
+db, err := postgresql.NewPostgresDatabase(uri)
+defer db.Close()
+db.Ping(5, 2)
+```
+
+### Entity Definition
+Entities must implement yaaf-common.Entity interface:
+```go
+type Hero struct {
+    entity.BaseEntity
+    Name    string   `json:"name"`
+    Power   string   `json:"power"`
+    Friends []string `json:"friends"`
+}
+func (h *Hero) TABLE() string { return "heroes" }
+```
+
+### CRUD Operations
+```go
+// Create
+hero := NewHeroWithParams("1", "Superman", "Flight", []string{"Batman"})
+db.Insert(hero)
+
+// Read
+retrievedHero, _ := db.Get(NewHero, "1")
+
+// Update
+retrievedHero.(*Hero).Name = "New Superman"
+db.Update(retrievedHero)
+
+// Delete
+db.Delete(NewHero, "1")
+```
+
+### Querying
+```go
+query := db.Query(NewHero).Eq(database.F("power").Eq("Super Strength"))
+results, _ := query.Find()
+```
+
+### DDL
+```go
+// Create table with indexes on JSON fields
+ddl := map[string][]string{
+    "heroes": {"name", "power"},
+}
+db.ExecuteDDL(ddl)
+```
+
+## Requirements
+
+- Go 1.23 or higher
+- PostgreSQL database
+
+## Testing
+
+Tests require a running PostgreSQL instance:
+```bash
+# Default connection: postgresql://user:password@localhost:5432/test_db
+go test -v ./...
+```
+
+## Related Projects
+
+- yaaf-common: Core framework defining IDatabase interface
+- yaaf-common-redis: Redis implementation and message bus
+- yaaf-common-elasticsearch: Elasticsearch implementation
