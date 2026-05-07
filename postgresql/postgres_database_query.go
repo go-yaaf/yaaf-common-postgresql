@@ -6,10 +6,11 @@ package postgresql
 import (
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/go-yaaf/yaaf-common/database"
 	. "github.com/go-yaaf/yaaf-common/entity"
@@ -127,7 +128,8 @@ func (s *postgresDatabaseQuery) List(entityIDs []string, keys ...string) (out []
 
 	result, err := s.db.List(s.factory, entityIDs, keys...)
 	if err != nil {
-		return nil, err
+		empty := make([]Entity, 0)
+		return empty, err
 	}
 
 	// Apply filters
@@ -149,7 +151,8 @@ func (s *postgresDatabaseQuery) Find(keys ...string) (out []Entity, total int64,
 	sqlState, args := s.buildStatement(keys...)
 
 	if rows, err = s.db.poolDb.Query(context.Background(), sqlState, args...); err != nil {
-		return
+		empty := make([]Entity, 0)
+		return empty, 0, err
 	}
 
 	// Scan row by row and fetch entities
@@ -165,8 +168,11 @@ func (s *postgresDatabaseQuery) Find(keys ...string) (out []Entity, total int64,
 		}
 
 		if entity, err = s.unMarshal(&jsonDoc, nil); err != nil {
-			return
+			empty := make([]Entity, 0)
+			return empty, 0, err
 		}
+		out = make([]Entity, 0)
+
 		transformed := s.processCallbacks(entity)
 		if transformed != nil {
 			out = append(out, transformed)
