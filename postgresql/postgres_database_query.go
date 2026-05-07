@@ -126,10 +126,11 @@ func (s *postgresDatabaseQuery) Page(page int) database.IQuery {
 // List Execute a query to get list of entities by IDs (the criteria is ignored)
 func (s *postgresDatabaseQuery) List(entityIDs []string, keys ...string) (out []Entity, err error) {
 
+	out = make([]Entity, 0)
+
 	result, err := s.db.List(s.factory, entityIDs, keys...)
 	if err != nil {
-		empty := make([]Entity, 0)
-		return empty, err
+		return out, err
 	}
 
 	// Apply filters
@@ -147,12 +148,12 @@ func (s *postgresDatabaseQuery) List(entityIDs []string, keys ...string) (out []
 func (s *postgresDatabaseQuery) Find(keys ...string) (out []Entity, total int64, err error) {
 
 	var rows pgx.Rows
+	out = make([]Entity, 0)
 
 	sqlState, args := s.buildStatement(keys...)
 
 	if rows, err = s.db.poolDb.Query(context.Background(), sqlState, args...); err != nil {
-		empty := make([]Entity, 0)
-		return empty, 0, err
+		return out, 0, err
 	}
 
 	// Scan row by row and fetch entities
@@ -171,7 +172,6 @@ func (s *postgresDatabaseQuery) Find(keys ...string) (out []Entity, total int64,
 			empty := make([]Entity, 0)
 			return empty, 0, err
 		}
-		out = make([]Entity, 0)
 
 		transformed := s.processCallbacks(entity)
 		if transformed != nil {
