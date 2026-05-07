@@ -192,10 +192,17 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 	}
 
 	// Determine the field name and extract operator
-	fieldName := qf.GetField()
+	rawFieldName := qf.GetField()
+	fieldName := rawFieldName
 	if fieldName != "id" {
 		fieldName = s.getCastField(fieldName, qf.GetOperator())
 	}
+
+	// Handle JSONB array LIKE/NOT LIKE
+	if (qf.GetOperator() == database.Like || qf.GetOperator() == database.NotLike) && strings.Contains(rawFieldName, "[]") {
+		return s.buildFilterArrayLike(rawFieldName, qf, varIndex)
+	}
+
 	// Sanitize boolean values ( pgx-specific behaviour, expects to get it as string )
 
 	switch qf.GetOperator() {
@@ -283,6 +290,34 @@ func toArray(values []any) string {
 
 	}
 	return strings.Join(result, ", ")
+}
+
+func (s *postgresDatabaseQuery) buildFilterArrayLike(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
+	args = make([]any, 0)
+	parts := make([]string, 0)
+
+	// fieldName is like "simCards[].ip"
+	pathParts := strings.Split(fieldName, "[]")
+	if len(pathParts) < 2 {
+		return "", nil // Should not happen
+	}
+	arrayField := pathParts[0]
+	innerField := strings.TrimPrefix(pathParts[1], ".")
+
+	for _, value := range qf.GetValues() {
+		str := parseWildcards(fmt.Sprintf("%v", value))
+		op := "LIKE"
+		exists := "EXISTS"
+		if qf.GetOperator() == database.NotLike {
+			exists = "NOT EXISTS"
+		}
+
+		parts = append(parts, fmt.Sprintf("(%s (SELECT 1 FROM jsonb_array_elements(data->'%s') AS elem WHERE lower(elem->>'%s') %s lower($%d)))", exists, arrayField, innerField, op, varIndex))
+		args = append(args, str)
+		varIndex++
+	}
+	sqlPart = fmt.Sprintf("(%s)", strings.Join(parts, " OR "))
+	return
 }
 
 // Build LIKE query filter
