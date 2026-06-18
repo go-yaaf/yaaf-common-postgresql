@@ -276,7 +276,7 @@ func (s *postgresDatabaseQuery) Aggregation(field string, function database.AggF
 	}
 
 	if rows.Next() {
-		err = rows.Scan(&value)
+		_ = rows.Scan(&value)
 	}
 
 	rows.Close()
