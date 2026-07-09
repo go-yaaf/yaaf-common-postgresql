@@ -5,6 +5,7 @@ package postgresql
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -141,7 +142,8 @@ func createPostgresDatabase(dbUri string) (dbs *PostgresDatabase, err error) {
 func convertConnectionString(dbUri string) (driver string, connStr string, err error) {
 	uri, err := url.Parse(strings.TrimSpace(dbUri))
 	if err != nil {
-		return "", "", fmt.Errorf("URI: %s parsing failed: %s", dbUri, err.Error())
+		// Do not echo the raw URI - it may contain the password.
+		return "", "", fmt.Errorf("database URI parsing failed: %s", err.Error())
 	}
 
 	usr := uri.User.Username()
@@ -164,7 +166,8 @@ func convertConnectionString(dbUri string) (driver string, connStr string, err e
 	if strings.Contains(uri.Host, ":") {
 		host, port, err = net.SplitHostPort(uri.Host)
 		if err != nil {
-			return "", "", fmt.Errorf("URI: %s host:port parsing failed: %s", dbUri, err.Error())
+			// uri.Redacted() masks the password in the URI.
+			return "", "", fmt.Errorf("URI: %s host:port parsing failed: %s", uri.Redacted(), err.Error())
 		}
 	}
 
@@ -177,6 +180,14 @@ func convertConnectionString(dbUri string) (driver string, connStr string, err e
 		appName = params["ApplicationName"][0]
 	}
 
+	// Honor the sslmode provided in the URI; default to a secure mode.
+	// TLS must NOT be silently disabled - that would send credentials and data
+	// in plaintext and expose the connection to MITM attacks.
+	sslMode := "require"
+	if v := params.Get("sslmode"); v != "" {
+		sslMode = v
+	}
+
 	// if application_name parameter is not provided, get it from the executable name
 	if len(appName) == 0 {
 		executablePath := os.Args[0]            // Gets the path of the currently running executable
@@ -184,7 +195,7 @@ func convertConnectionString(dbUri string) (driver string, connStr string, err e
 	}
 
 	connStr = fmt.Sprintf("host=%s port=%s dbname=%s user=%s password=%s sslmode=%s application_name=%s",
-		host, port, dbName, usr, pwd, "disable", appName)
+		host, port, dbName, usr, pwd, sslMode, appName)
 
 	return "pgx", connStr, nil
 }
@@ -711,19 +722,21 @@ func (dbs *PostgresDatabase) SetField(factory EntityFactory, entityID string, fi
 	entity := factory()
 	tblName := tableName(entity.TABLE(), keys...)
 
-	SQL := ""
-
-	if strVal, ok := value.(string); ok {
-		SQL = fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', '"%s"', false) WHERE id = $1`, tblName, field, strVal)
-	} else {
-		SQL = fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', '%v', false) WHERE id = $1`, tblName, field, value)
+	// Field names cannot be bind parameters, so validate as a safe identifier.
+	if !isSafeFieldName(field) {
+		return fmt.Errorf("invalid field name: %q", field)
 	}
-	//SQL := fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', $1, false) WHERE id = $2`, tblName, field)
 
-	args := make([]any, 0)
-	args = append(args, entityID)
+	// JSON-encode the value so it becomes a valid, escaped jsonb literal, then
+	// pass it (and the entity id) as bind parameters - never interpolate them.
+	jsonVal, jErr := json.Marshal(value)
+	if jErr != nil {
+		return fmt.Errorf("failed to encode field value: %w", jErr)
+	}
 
-	if _, err = dbs.poolDb.Exec(context.Background(), SQL, args...); err != nil {
+	SQL := fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', $1::jsonb, false) WHERE id = $2`, tblName, field)
+
+	if _, err = dbs.poolDb.Exec(context.Background(), SQL, string(jsonVal), entityID); err != nil {
 		return
 	}
 
@@ -762,6 +775,11 @@ func (dbs *PostgresDatabase) BulkSetFields(factory EntityFactory, field string, 
 
 	if len(values) == 0 {
 		return 0, nil
+	}
+
+	// Field name is interpolated into the UPDATE - validate as a safe identifier.
+	if !isSafeFieldName(field) {
+		return 0, fmt.Errorf("invalid field name: %q", field)
 	}
 
 	// Determine the type of the field

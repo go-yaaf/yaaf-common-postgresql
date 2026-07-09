@@ -4,6 +4,7 @@
 package postgresql
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"reflect"
@@ -13,6 +14,28 @@ import (
 	"github.com/go-yaaf/yaaf-common/database"
 	"github.com/go-yaaf/yaaf-common/entity"
 )
+
+// isSafeFieldName validates that a field / identifier contains only characters
+// that are legal in an entity field path: letters, digits, underscore, dot
+// (nested JSON path) and the array marker []. Any other character (quote,
+// space, parenthesis, semicolon, comment marker, ...) indicates an attempt to
+// break out of the surrounding SQL and is rejected.
+//
+// Field names are the one part of a query that cannot be passed as a bind
+// parameter, so every place that interpolates a field name into SQL must gate
+// it through this function.
+func isSafeFieldName(name string) bool {
+	if name == "" || len(name) > 256 {
+		return false
+	}
+	for _, r := range name {
+		if !(r == '_' || r == '.' || r == '[' || r == ']' ||
+			(r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')) {
+			return false
+		}
+	}
+	return true
+}
 
 // region Query helper Methods -----------------------------------------------------------------------------------------
 
@@ -229,11 +252,15 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 	case database.Between:
 		return fmt.Sprintf("(%s BETWEEN $%d AND $%d)", fieldName, varIndex, varIndex+1), values
 	case database.Contains:
-		arr := toArray(values)
-		return fmt.Sprintf("%s @> '[%s]'", fieldName, arr), nil
+		if jsonArr, jErr := json.Marshal(values); jErr == nil {
+			return fmt.Sprintf("(%s @> $%d::jsonb)", fieldName, varIndex), []any{string(jsonArr)}
+		}
+		return "", nil
 	case database.NotContains:
-		arr := toArray(values)
-		return fmt.Sprintf("NOT %s @> '[%s]'", fieldName, arr), nil
+		if jsonArr, jErr := json.Marshal(values); jErr == nil {
+			return fmt.Sprintf("(NOT %s @> $%d::jsonb)", fieldName, varIndex), []any{string(jsonArr)}
+		}
+		return "", nil
 	case database.Empty:
 		return fmt.Sprintf("((%s = '') IS NOT FALSE)", fieldName), nil
 	case database.True:
@@ -266,6 +293,9 @@ func (s *postgresDatabaseQuery) buildSubQueryFilter(qf database.QueryFilter, var
 	where, subQueryArgs := subQuery.buildCriteria(varIndex)
 	sqField := qf.GetSubQueryField()
 	if sqField != "id" {
+		if !isSafeFieldName(sqField) {
+			return "", nil
+		}
 		sqField = fmt.Sprintf("data->>'%s'", sqField)
 	}
 
@@ -279,19 +309,6 @@ func (s *postgresDatabaseQuery) buildSubQueryFilter(qf database.QueryFilter, var
 	return fmt.Sprintf("(%s %s (%s))", fieldName, operator, SQL), subQueryArgs
 }
 
-func toArray(values []any) string {
-	result := make([]string, 0)
-	for _, v := range values {
-		if val, ok := v.(string); ok {
-			result = append(result, fmt.Sprintf("\"%v\"", val))
-		} else {
-			result = append(result, fmt.Sprintf("%v", v))
-		}
-
-	}
-	return strings.Join(result, ", ")
-}
-
 func (s *postgresDatabaseQuery) buildFilterArrayLike(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 	args = make([]any, 0)
 	parts := make([]string, 0)
@@ -303,6 +320,11 @@ func (s *postgresDatabaseQuery) buildFilterArrayLike(fieldName string, qf databa
 	}
 	arrayField := pathParts[0]
 	innerField := strings.TrimPrefix(pathParts[1], ".")
+
+	// Both parts are interpolated as identifiers - reject anything unsafe.
+	if !isSafeFieldName(arrayField) || !isSafeFieldName(innerField) {
+		return "", nil
+	}
 
 	for _, value := range qf.GetValues() {
 		str := parseWildcards(fmt.Sprintf("%v", value))
@@ -423,6 +445,14 @@ func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.Q
 
 // Build the cast
 func (s *postgresDatabaseQuery) getCastField(fieldName string, operator database.QueryOperator) (result string) {
+
+	// Defense-in-depth: a field name cannot be a bind parameter, so it is
+	// interpolated into the SQL. Never allow an unsafe identifier through -
+	// fall back to a constant literal that can neither match nor break out of
+	// the statement (an always-false predicate / constant ORDER BY term).
+	if !isSafeFieldName(fieldName) {
+		return "'__invalid_field__'"
+	}
 
 	// Check if field's name is in map of "data" fields
 	// if it is not, treat it as a native column name

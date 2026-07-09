@@ -15,7 +15,7 @@ each table has only two fields: `id` (of type string) and `data` (of type jsonb)
 Domain model entities are stored as Json documents (which are indexed by json keys) hence the database is used like a document storage (similar to Elasticsearch, MongoDB, Couchbase and more)
 The main philosophy of that concept is to avoid changing the underlying database schema for each domain model structure changes and it simplifies the development process.
 
-This library is built around the [Pure Go Postgres driver for database/sql](https://github.com/lib/pq)
+This library is built around the [pgx](https://github.com/jackc/pgx) driver (`github.com/jackc/pgx/v5`).
 
 ## Features
 
@@ -31,7 +31,7 @@ This library is built around the [Pure Go Postgres driver for database/sql](http
 
 ### Prerequisites
 
-*   Go 1.23 or higher
+*   Go 1.25 or higher
 *   Postgres SQL database
 
 ### Installation
@@ -47,6 +47,10 @@ go get -v -t github.com/go-yaaf/yaaf-common-postgresql
 #### Connecting to the Database
 
 To connect to a Postgres SQL database, create a new `Postgres Database` instance using a connection string.
+
+> **TLS:** the connection honors the `sslmode` parameter from the URI and defaults to
+> `require` when it is not specified (e.g. `postgresql://user:password@host:5432/db?sslmode=verify-full`).
+> Use `sslmode=disable` explicitly only for local/trusted development.
 
 ```go
 package main
@@ -269,10 +273,13 @@ if err := db.DropTable("heroes"); err != nil {
 
 ## Running Tests
 
-To run the tests for this library, you'll need a running Postgres SQL instance. The tests use the following connection string by default: `postgresql://user:password@localhost:5432/test_db`.
+The tests are integration tests that require a running Postgres SQL instance (some spin
+up a Docker container automatically; others read the connection string from the
+`TEST_DB_URI` environment variable and skip when it is not set).
 
-You can run the tests with the following command:
+> Do **not** hardcode credentials in test files — always provide them via `TEST_DB_URI`.
 
 ```bash
+export TEST_DB_URI="postgres://user:password@localhost:5432/test_db"
 go test -v ./...
 ```

@@ -47,9 +47,16 @@ yaaf-common-postgresql provides a concrete PostgreSQL implementation of the IDat
 │   ├── data_for_test.go                # Test data generators
 │   └── model/
 │       └── Account.go                   # Test entity model
+├── AGENTS.md                # Guidance for AI coding assistants (architecture, security invariants)
+├── CLAUDE.md                # Pointer to AGENTS.md for Claude Code
 ├── go.mod                   # Go module definition
 └── README.md               # Project documentation
 ```
+
+For AI coding assistants, `AGENTS.md` is the authoritative guide — it documents the
+build/test workflow, conventions, and the security invariants (bind parameters for
+values, `isSafeFieldName` validation for identifiers, TLS defaults) that must be
+preserved when editing query/SQL construction code.
 
 ## Core Components
 
@@ -78,11 +85,11 @@ Change notification system:
 
 ## Dependencies
 
-Key dependencies from go.mod:
-- github.com/go-yaaf/yaaf-common v1.2.182 - Core framework interfaces
-- github.com/jackc/pgx/v5 v5.8.0 - Pure Go PostgreSQL driver
-- cloud.google.com/go/cloudsqlconn v1.20.0 - Cloud SQL Proxy support
-- github.com/go-yaaf/yaaf-common-redis v1.2.65 - Message bus integration
+Key dependencies from go.mod (Go 1.25.8):
+- github.com/go-yaaf/yaaf-common v1.2.186 - Core framework interfaces
+- github.com/jackc/pgx/v5 v5.10.0 - Pure Go PostgreSQL driver
+- cloud.google.com/go/cloudsqlconn v1.22.1 - Cloud SQL Proxy support
+- github.com/go-yaaf/yaaf-common-redis v1.2.71 - Message bus integration
 
 ## Usage Examples
 
@@ -140,14 +147,16 @@ db.ExecuteDDL(ddl)
 
 ## Requirements
 
-- Go 1.23 or higher
+- Go 1.25 or higher
 - PostgreSQL database
 
 ## Testing
 
-Tests require a running PostgreSQL instance:
+Integration tests require a running PostgreSQL instance. Provide the connection string
+via the `TEST_DB_URI` environment variable (never hardcode credentials); tests skip when
+it is not set, and some spin up a Docker container automatically.
 ```bash
-# Default connection: postgresql://user:password@localhost:5432/test_db
+export TEST_DB_URI="postgres://user:password@localhost:5432/test_db"
 go test -v ./...
 ```
 

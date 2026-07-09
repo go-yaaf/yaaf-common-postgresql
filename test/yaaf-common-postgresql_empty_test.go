@@ -2,9 +2,11 @@ package test
 
 import (
 	"fmt"
+	"os"
+	"testing"
+
 	"github.com/go-yaaf/yaaf-common/database"
 	"github.com/stretchr/testify/require"
-	"testing"
 
 	"github.com/go-yaaf/yaaf-common-postgresql/postgresql"
 )
@@ -12,8 +14,12 @@ import (
 func TestEmptyOperator(t *testing.T) {
 	skipCI(t)
 
-	//dbURI := fmt.Sprintf("postgres://user:pwd@host:5432/postgres")
-	dbURI := fmt.Sprintf("postgres://postgres:dOn7cE1p55m63h4I@34.147.69.116:5432/bookmev2")
+	// Provide the connection string via the TEST_DB_URI environment variable, e.g.
+	//   export TEST_DB_URI="postgres://user:pwd@host:5432/dbname"
+	dbURI := os.Getenv("TEST_DB_URI")
+	if dbURI == "" {
+		t.Skip("TEST_DB_URI not set")
+	}
 	db, err := postgresql.NewPostgresDatabase(dbURI)
 	require.NoError(t, err)
 

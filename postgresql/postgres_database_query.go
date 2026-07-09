@@ -267,6 +267,9 @@ func (s *postgresDatabaseQuery) Aggregation(field string, function database.AggF
 	if !collections.Include(functions, string(function)) {
 		return 0, fmt.Errorf("function %s not supported", function)
 	}
+	if !isSafeFieldName(field) {
+		return 0, fmt.Errorf("invalid field name: %q", field)
+	}
 	SQL, args := s.buildCountStatement(field, string(function), keys...)
 
 	rows, err := s.db.poolDb.Query(context.Background(), SQL, args...)
@@ -287,6 +290,10 @@ func (s *postgresDatabaseQuery) Aggregation(field string, function database.AggF
 func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (map[any]int64, int64, error) {
 
 	result := make(map[any]int64)
+
+	if !isSafeFieldName(field) {
+		return result, 0, fmt.Errorf("invalid field name: %q", field)
+	}
 
 	// Build the group count statement
 	tblName := tableName(s.factory().TABLE(), keys...)
@@ -328,6 +335,9 @@ func (s *postgresDatabaseQuery) GroupAggregation(field string, function database
 
 	if !collections.Include(functions, string(function)) {
 		return nil, 0, fmt.Errorf("function %s not supported", function)
+	}
+	if !isSafeFieldName(field) {
+		return nil, 0, fmt.Errorf("invalid field name: %q", field)
 	}
 	result := make(map[any]Tuple[int64, float64])
 	total := float64(0)
@@ -377,6 +387,9 @@ func (s *postgresDatabaseQuery) Histogram(field string, function database.AggFun
 	if !collections.Include(functions, string(function)) {
 		return nil, 0, fmt.Errorf("function %s not supported", function)
 	}
+	if !isSafeFieldName(timeField) || (function != "count" && !isSafeFieldName(field)) {
+		return nil, 0, fmt.Errorf("invalid field name")
+	}
 	result := make(map[Timestamp]Tuple[int64, float64])
 
 	// Build the group count statement
@@ -423,6 +436,9 @@ func (s *postgresDatabaseQuery) Histogram(field string, function database.AggFun
 func (s *postgresDatabaseQuery) Histogram2D(field string, function database.AggFunc, dim, timeField string, interval time.Duration, keys ...string) (map[Timestamp]map[any]Tuple[int64, float64], float64, error) {
 	if !collections.Include(functions, string(function)) {
 		return nil, 0, fmt.Errorf("function %s not supported", function)
+	}
+	if !isSafeFieldName(timeField) || !isSafeFieldName(dim) || (function != "count" && !isSafeFieldName(field)) {
+		return nil, 0, fmt.Errorf("invalid field name")
 	}
 	result := make(map[Timestamp]map[any]Tuple[int64, float64])
 
@@ -575,29 +591,36 @@ func (s *postgresDatabaseQuery) SetField(field string, value any, keys ...string
 // SetFields Update multiple fields of all the documents meeting the criteria in a single transaction
 func (s *postgresDatabaseQuery) SetFields(fields map[string]any, keys ...string) (total int64, err error) {
 
-	allArgs := make([]any, 0)
+	if len(fields) == 0 {
+		return 0, nil
+	}
 
 	entity := s.factory()
 	tblName := tableName(entity.TABLE(), keys...)
 
-	parts := make([]string, 0)
+	// Build a jsonb_build_object('field1', $1, 'field2', $2, ...) with every
+	// value passed as a bind parameter. Field names cannot be parameterized so
+	// they are validated as safe identifiers to prevent SQL injection.
+	allArgs := make([]any, 0, len(fields))
+	pairs := make([]string, 0, len(fields))
 	i := 1
 	for f, v := range fields {
-		part := fmt.Sprintf(`"%s": $%d`, f, i)
+		if !isSafeFieldName(f) {
+			return 0, fmt.Errorf("invalid field name: %q", f)
+		}
+		pairs = append(pairs, fmt.Sprintf("'%s', $%d", f, i))
 		allArgs = append(allArgs, v)
-		parts = append(parts, part)
+		i++
 	}
 
-	fieldsList := strings.Join(parts, ",")
+	// Build the WHERE clause, continuing the bind-parameter numbering
+	where, args := s.buildCriteria(i)
+	allArgs = append(allArgs, args...)
 
-	// Build the WHERE clause
-	where, args := s.buildCriteria(0)
-
-	allArgs = append(allArgs, args)
-	SQL := fmt.Sprintf(`UPDATE "%s" SET data = data || '{%s}' %s`, tblName, fieldsList, where)
+	SQL := fmt.Sprintf(`UPDATE "%s" SET data = data || jsonb_build_object(%s) %s`, tblName, strings.Join(pairs, ", "), where)
 
 	if res, er := s.db.poolDb.Exec(context.Background(), SQL, allArgs...); er != nil {
-		return 0, err
+		return 0, er
 	} else {
 		return res.RowsAffected(), nil
 	}
