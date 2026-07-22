@@ -608,7 +608,14 @@ func (s *postgresDatabaseQuery) SetFields(fields map[string]any, keys ...string)
 		if !isSafeFieldName(f) {
 			return 0, fmt.Errorf("invalid field name: %q", f)
 		}
-		pairs = append(pairs, fmt.Sprintf("'%s', $%d", f, i))
+
+		// add casting: $1::int
+		if _, ok := v.(int); ok {
+			pairs = append(pairs, fmt.Sprintf("'%s', $%d::int", f, i))
+		} else {
+			pairs = append(pairs, fmt.Sprintf("'%s', $%d%s", f, i))
+		}
+
 		allArgs = append(allArgs, v)
 		i++
 	}
