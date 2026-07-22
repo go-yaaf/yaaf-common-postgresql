@@ -613,7 +613,7 @@ func (s *postgresDatabaseQuery) SetFields(fields map[string]any, keys ...string)
 		if _, ok := v.(int); ok {
 			pairs = append(pairs, fmt.Sprintf("'%s', $%d::int", f, i))
 		} else {
-			pairs = append(pairs, fmt.Sprintf("'%s', $%d%s", f, i))
+			pairs = append(pairs, fmt.Sprintf("'%s', $%d", f, i))
 		}
 
 		allArgs = append(allArgs, v)
