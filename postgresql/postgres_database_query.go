@@ -1,14 +1,16 @@
-// SQLite database implementation of IQuery
+// Postgresql database implementation of IQuery
 //
 
-package sqlitedb
+package postgresql
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/go-yaaf/yaaf-common/database"
 	. "github.com/go-yaaf/yaaf-common/entity"
@@ -17,10 +19,10 @@ import (
 
 var functions = []string{"count", "avg", "sum", "min", "max"}
 
-// region SQLite query internal structure ------------------------------------------------------------------------------
+// region postgres query internal structure ----------------------------------------------------------------------------
 
-type sqliteDatabaseQuery struct {
-	db              *SQLiteDatabase          // A reference to the underlying IDatabase
+type postgresDatabaseQuery struct {
+	db              *PostgresDatabase        // A reference to the underlying IDatabase
 	factory         EntityFactory            // The entity factory method
 	allFilters      [][]database.QueryFilter // List of lists of AND filters
 	anyFilters      [][]database.QueryFilter // List of lists of OR filters
@@ -41,7 +43,7 @@ type sqliteDatabaseQuery struct {
 // region Query Construction Methods -----------------------------------------------------------------------------------
 
 // Apply adds a callback to apply on each result entity in the query
-func (s *sqliteDatabaseQuery) Apply(cb func(in Entity) Entity) database.IQuery {
+func (s *postgresDatabaseQuery) Apply(cb func(in Entity) Entity) database.IQuery {
 	if cb != nil {
 		s.callbacks = append(s.callbacks, cb)
 	}
@@ -49,7 +51,7 @@ func (s *sqliteDatabaseQuery) Apply(cb func(in Entity) Entity) database.IQuery {
 }
 
 // Filter Add single field filter
-func (s *sqliteDatabaseQuery) Filter(filter database.QueryFilter) database.IQuery {
+func (s *postgresDatabaseQuery) Filter(filter database.QueryFilter) database.IQuery {
 	if filter.IsActive() {
 		s.allFilters = append(s.allFilters, []database.QueryFilter{filter})
 	}
@@ -57,7 +59,7 @@ func (s *sqliteDatabaseQuery) Filter(filter database.QueryFilter) database.IQuer
 }
 
 // Range add time frame filter on specific time field
-func (s *sqliteDatabaseQuery) Range(field string, from Timestamp, to Timestamp) database.IQuery {
+func (s *postgresDatabaseQuery) Range(field string, from Timestamp, to Timestamp) database.IQuery {
 	s.rangeField = field
 	s.rangeFrom = from
 	s.rangeTo = to
@@ -65,7 +67,7 @@ func (s *sqliteDatabaseQuery) Range(field string, from Timestamp, to Timestamp) 
 }
 
 // MatchAll Add list of filters, all of them should be satisfied (AND)
-func (s *sqliteDatabaseQuery) MatchAll(filters ...database.QueryFilter) database.IQuery {
+func (s *postgresDatabaseQuery) MatchAll(filters ...database.QueryFilter) database.IQuery {
 	list := make([]database.QueryFilter, 0)
 	for _, filter := range filters {
 		if filter.IsActive() {
@@ -77,7 +79,7 @@ func (s *sqliteDatabaseQuery) MatchAll(filters ...database.QueryFilter) database
 }
 
 // MatchAny Add list of filters, any of them should be satisfied (OR)
-func (s *sqliteDatabaseQuery) MatchAny(filters ...database.QueryFilter) database.IQuery {
+func (s *postgresDatabaseQuery) MatchAny(filters ...database.QueryFilter) database.IQuery {
 	list := make([]database.QueryFilter, 0)
 	for _, filter := range filters {
 		if filter.IsActive() == true {
@@ -89,7 +91,7 @@ func (s *sqliteDatabaseQuery) MatchAny(filters ...database.QueryFilter) database
 }
 
 // Sort Add sort order by field,  expects sort parameter in the following form: field_name (Ascending) or field_name- (Descending)
-func (s *sqliteDatabaseQuery) Sort(sort string) database.IQuery {
+func (s *postgresDatabaseQuery) Sort(sort string) database.IQuery {
 	if sort == "" {
 		return s
 	}
@@ -106,13 +108,13 @@ func (s *sqliteDatabaseQuery) Sort(sort string) database.IQuery {
 }
 
 // Limit Set page size limit (for pagination)
-func (s *sqliteDatabaseQuery) Limit(limit int) database.IQuery {
+func (s *postgresDatabaseQuery) Limit(limit int) database.IQuery {
 	s.limit = limit
 	return s
 }
 
 // Page Set requested page number (used for pagination)
-func (s *sqliteDatabaseQuery) Page(page int) database.IQuery {
+func (s *postgresDatabaseQuery) Page(page int) database.IQuery {
 	s.page = page
 	return s
 }
@@ -122,7 +124,7 @@ func (s *sqliteDatabaseQuery) Page(page int) database.IQuery {
 // region QueryBuilder Execution Methods -------------------------------------------------------------------------------
 
 // List Execute a query to get list of entities by IDs (the criteria is ignored)
-func (s *sqliteDatabaseQuery) List(entityIDs []string, keys ...string) (out []Entity, err error) {
+func (s *postgresDatabaseQuery) List(entityIDs []string, keys ...string) (out []Entity, err error) {
 
 	out = make([]Entity, 0)
 
@@ -143,21 +145,21 @@ func (s *sqliteDatabaseQuery) List(entityIDs []string, keys ...string) (out []En
 
 // Find Execute query based on the criteria, order and pagination
 // On each record, after the marshaling the result shall be transformed via the query callback chain
-func (s *sqliteDatabaseQuery) Find(keys ...string) (out []Entity, total int64, err error) {
+func (s *postgresDatabaseQuery) Find(keys ...string) (out []Entity, total int64, err error) {
 
-	var rows *sql.Rows
+	var rows pgx.Rows
 	out = make([]Entity, 0)
 
 	sqlState, args := s.buildStatement(keys...)
 
-	if rows, err = s.db.db.Query(sqlState, args...); err != nil {
+	if rows, err = s.db.poolDb.Query(context.Background(), sqlState, args...); err != nil {
 		return out, 0, err
 	}
 
 	// Scan row by row and fetch entities
 	var entity Entity
 
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	for rows.Next() {
 
@@ -182,7 +184,7 @@ func (s *sqliteDatabaseQuery) Find(keys ...string) (out []Entity, total int64, e
 }
 
 // Select is similar to find but with ability to retrieve specific fields
-func (s *sqliteDatabaseQuery) Select(fields ...string) ([]Json, error) {
+func (s *postgresDatabaseQuery) Select(fields ...string) ([]Json, error) {
 
 	// Build the SQL select
 	tblName := tableName(s.factory().TABLE())
@@ -207,7 +209,7 @@ func (s *sqliteDatabaseQuery) Select(fields ...string) ([]Json, error) {
 		SQL = fmt.Sprintf(`SELECT %s FROM "%s" %s %s %s`, selectFields, tblName, where, order, limit)
 	}
 
-	rows, err := s.db.db.Query(SQL, args...)
+	rows, err := s.db.poolDb.Query(context.Background(), SQL, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +221,7 @@ func (s *sqliteDatabaseQuery) Select(fields ...string) ([]Json, error) {
 			break
 		}
 
-		cols, _ := rows.ColumnTypes()
+		cols := rows.FieldDescriptions()
 		values := make([]any, len(cols))
 		for i := range cols {
 			values[i] = new(string)
@@ -231,7 +233,7 @@ func (s *sqliteDatabaseQuery) Select(fields ...string) ([]Json, error) {
 
 		entry := Json{}
 		for i, col := range cols {
-			entry[col.Name()] = values[i]
+			entry[col.Name] = values[i]
 		}
 		result = append(result, entry)
 	}
@@ -241,17 +243,17 @@ func (s *sqliteDatabaseQuery) Select(fields ...string) ([]Json, error) {
 
 // Count Execute query based on the criteria, order and pagination
 // returns only the count of matching rows
-func (s *sqliteDatabaseQuery) Count(keys ...string) (total int64, err error) {
+func (s *postgresDatabaseQuery) Count(keys ...string) (total int64, err error) {
 
-	var rows *sql.Rows
+	var rows pgx.Rows
 
 	SQL, args := s.buildCountStatement("", "count", keys...)
 
-	if rows, err = s.db.db.Query(SQL, args...); err != nil {
+	if rows, err = s.db.poolDb.Query(context.Background(), SQL, args...); err != nil {
 		return
 	}
 
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 	if rows.Next() {
 		err = rows.Scan(&total)
 	}
@@ -260,7 +262,7 @@ func (s *sqliteDatabaseQuery) Count(keys ...string) (total int64, err error) {
 
 // Aggregation Execute the query based on the criteria, order and pagination and return the provided aggregation function on the field
 // supported functions: count ,avg, sum, min, max
-func (s *sqliteDatabaseQuery) Aggregation(field string, function database.AggFunc, keys ...string) (value float64, err error) {
+func (s *postgresDatabaseQuery) Aggregation(field string, function database.AggFunc, keys ...string) (value float64, err error) {
 
 	if !collections.Include(functions, string(function)) {
 		return 0, fmt.Errorf("function %s not supported", function)
@@ -270,7 +272,7 @@ func (s *sqliteDatabaseQuery) Aggregation(field string, function database.AggFun
 	}
 	SQL, args := s.buildCountStatement(field, string(function), keys...)
 
-	rows, err := s.db.db.Query(SQL, args...)
+	rows, err := s.db.poolDb.Query(context.Background(), SQL, args...)
 
 	if err != nil {
 		return 0, err
@@ -280,12 +282,12 @@ func (s *sqliteDatabaseQuery) Aggregation(field string, function database.AggFun
 		_ = rows.Scan(&value)
 	}
 
-	_ = rows.Close()
+	rows.Close()
 	return
 }
 
 // GroupCount Execute the query based on the criteria, grouped by field and return count per group
-func (s *sqliteDatabaseQuery) GroupCount(field string, keys ...string) (map[any]int64, int64, error) {
+func (s *postgresDatabaseQuery) GroupCount(field string, keys ...string) (map[any]int64, int64, error) {
 
 	result := make(map[any]int64)
 
@@ -299,7 +301,7 @@ func (s *sqliteDatabaseQuery) GroupCount(field string, keys ...string) (map[any]
 	where, args := s.buildCriteria(0)
 	SQL := fmt.Sprintf(`SELECT count(*) cnt , data->>'%s' grp FROM "%s" %s GROUP BY grp`, field, tblName, where)
 
-	rows, err := s.db.db.Query(SQL, args...)
+	rows, err := s.db.poolDb.Query(context.Background(), SQL, args...)
 
 	if err != nil {
 		return result, 0, err
@@ -321,7 +323,7 @@ func (s *sqliteDatabaseQuery) GroupCount(field string, keys ...string) (map[any]
 		}
 	}
 
-	_ = rows.Close()
+	rows.Close()
 	return result, total, nil
 }
 
@@ -329,7 +331,7 @@ func (s *sqliteDatabaseQuery) GroupCount(field string, keys ...string) (map[any]
 // the data point is a calculation of the provided function on the selected field, each data point includes the number of documents and the calculated value
 // the total is the sum of all calculated values in all the buckets
 // supported functions: count : avg, sum, min, max
-func (s *sqliteDatabaseQuery) GroupAggregation(field string, function database.AggFunc, keys ...string) (map[any]Tuple[int64, float64], float64, error) {
+func (s *postgresDatabaseQuery) GroupAggregation(field string, function database.AggFunc, keys ...string) (map[any]Tuple[int64, float64], float64, error) {
 
 	if !collections.Include(functions, string(function)) {
 		return nil, 0, fmt.Errorf("function %s not supported", function)
@@ -347,11 +349,11 @@ func (s *sqliteDatabaseQuery) GroupAggregation(field string, function database.A
 
 	aggr := "*"
 	if function != "count" {
-		aggr = fmt.Sprintf("CAST(data->>'%s' AS REAL)", field)
+		aggr = fmt.Sprintf("(data->>'%s')::FLOAT", field)
 	}
 	SQL := fmt.Sprintf(`SELECT %s(%s) cnt , data->>'%s' grp FROM "%s" %s GROUP BY grp`, function, aggr, field, tblName, where)
 
-	rows, err := s.db.db.Query(SQL, args...)
+	rows, err := s.db.poolDb.Query(context.Background(), SQL, args...)
 
 	if err != nil {
 		return result, total, err
@@ -380,7 +382,7 @@ func (s *sqliteDatabaseQuery) GroupAggregation(field string, function database.A
 // the data point is a calculation of the provided function on the selected field, each data point includes the number of documents and the calculated value
 // the total is the sum of all calculated values in all the buckets
 // supported functions: count : avg, sum, min, max
-func (s *sqliteDatabaseQuery) Histogram(field string, function database.AggFunc, timeField string, interval time.Duration, keys ...string) (map[Timestamp]Tuple[int64, float64], float64, error) {
+func (s *postgresDatabaseQuery) Histogram(field string, function database.AggFunc, timeField string, interval time.Duration, keys ...string) (map[Timestamp]Tuple[int64, float64], float64, error) {
 
 	if !collections.Include(functions, string(function)) {
 		return nil, 0, fmt.Errorf("function %s not supported", function)
@@ -395,29 +397,31 @@ func (s *sqliteDatabaseQuery) Histogram(field string, function database.AggFunc,
 	args := make([]any, 0)
 	where, args := s.buildCriteria(0)
 
-	// calculate the truncated time bucket (epoch seconds)
-	bucket := s.buildTimeBucket(timeField, interval)
+	// calculate date part
+	dp := s.calculateDatePart(interval)
 
 	aggr := "*"
 	if function != "count" {
-		aggr = fmt.Sprintf("CAST(data->>'%s' AS REAL)", field)
+		aggr = fmt.Sprintf("(data->>'%s')::FLOAT", field)
 	}
 
 	SQL := fmt.Sprintf(
-		`SELECT %s(%s) AS cnt, %s AS dp FROM "%s" %s GROUP BY dp ORDER BY dp`, function, aggr, bucket, tblName, where)
+		`SELECT %s(%s) cnt, 
+				date_trunc('%s', to_timestamp((data->>'%s')::bigint / 1000)) dp 
+				FROM "%s" %s GROUP BY dp ORDER BY dp`, function, aggr, dp, timeField, tblName, where)
 
-	rows, err := s.db.db.Query(SQL, args...)
+	rows, err := s.db.poolDb.Query(context.Background(), SQL, args...)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	var count, total float64
 	var ts Timestamp
-	var seconds int64
+	var rTime time.Time
 
 	for rows.Next() {
-		if er := rows.Scan(&count, &seconds); er == nil {
-			ts = Timestamp(seconds * 1000)
+		if er := rows.Scan(&count, &rTime); er == nil {
+			ts = Timestamp(rTime.Unix() * 1000)
 			result[ts] = Tuple[int64, float64]{Key: int64(count), Value: count}
 			total += count
 		}
@@ -429,7 +433,7 @@ func (s *sqliteDatabaseQuery) Histogram(field string, function database.AggFunc,
 // Histogram2D returns a two-dimensional time series data points based on the time field, supported intervals: Minute, Hour, Day, week, month
 // the data point is a calculation of the provided function on the selected field
 // supported functions: count : avg, sum, min, max
-func (s *sqliteDatabaseQuery) Histogram2D(field string, function database.AggFunc, dim, timeField string, interval time.Duration, keys ...string) (map[Timestamp]map[any]Tuple[int64, float64], float64, error) {
+func (s *postgresDatabaseQuery) Histogram2D(field string, function database.AggFunc, dim, timeField string, interval time.Duration, keys ...string) (map[Timestamp]map[any]Tuple[int64, float64], float64, error) {
 	if !collections.Include(functions, string(function)) {
 		return nil, 0, fmt.Errorf("function %s not supported", function)
 	}
@@ -443,18 +447,20 @@ func (s *sqliteDatabaseQuery) Histogram2D(field string, function database.AggFun
 	args := make([]any, 0)
 	where, args := s.buildCriteria(0)
 
-	// calculate the truncated time bucket (epoch seconds)
-	bucket := s.buildTimeBucket(timeField, interval)
+	// calculate date part
+	dp := s.calculateDatePart(interval)
 
 	aggr := "*"
 	if function != "count" {
-		aggr = fmt.Sprintf("CAST(data->>'%s' AS REAL)", field)
+		aggr = fmt.Sprintf("(data->>'%s')::FLOAT", field)
 	}
 
 	SQL := fmt.Sprintf(
-		`SELECT %s(%s) cnt, (data->>'%s') dim, %s AS dp FROM "%s" %s GROUP BY dp, dim ORDER BY dp`, function, aggr, dim, bucket, tblName, where)
+		`SELECT %s(%s) cnt, (data->>'%s') dim,
+				date_trunc('%s', to_timestamp((data->>'%s')::bigint / 1000)) dp 
+				FROM "%s" %s GROUP BY dp, dim ORDER BY dp`, function, aggr, dim, dp, timeField, tblName, where)
 
-	rows, err := s.db.db.Query(SQL, args...)
+	rows, err := s.db.poolDb.Query(context.Background(), SQL, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -462,11 +468,11 @@ func (s *sqliteDatabaseQuery) Histogram2D(field string, function database.AggFun
 	var count, total float64
 	var dimVal int
 	var ts Timestamp
-	var seconds int64
+	var rTime time.Time
 
 	for rows.Next() {
-		if er := rows.Scan(&count, &dimVal, &seconds); er == nil {
-			ts = Timestamp(seconds * 1000)
+		if er := rows.Scan(&count, &dimVal, &rTime); er == nil {
+			ts = Timestamp(rTime.Unix() * 1000)
 
 			if _, ok := result[ts]; !ok {
 				result[ts] = make(map[any]Tuple[int64, float64])
@@ -481,11 +487,11 @@ func (s *sqliteDatabaseQuery) Histogram2D(field string, function database.AggFun
 
 // FindSingle Execute query based on the where criteria to get a single (the first) result
 // After the marshaling the result shall be transformed via the query callback chain
-func (s *sqliteDatabaseQuery) FindSingle(keys ...string) (entity Entity, err error) {
+func (s *postgresDatabaseQuery) FindSingle(keys ...string) (entity Entity, err error) {
 
 	s.limit = 1
 	sqlState, args := s.buildStatement(keys...)
-	row := s.db.db.QueryRow(sqlState, args...)
+	row := s.db.poolDb.QueryRow(context.Background(), sqlState, args...)
 
 	jsonDoc := JsonDoc{}
 	if err = row.Scan(&jsonDoc.Id, &jsonDoc.Data); err != nil {
@@ -500,25 +506,24 @@ func (s *sqliteDatabaseQuery) FindSingle(keys ...string) (entity Entity, err err
 }
 
 // GetMap Execute query based on the criteria, order and pagination and return the results as a map of id->Entity
-func (s *sqliteDatabaseQuery) GetMap(keys ...string) (out map[string]Entity, err error) {
+func (s *postgresDatabaseQuery) GetMap(keys ...string) (out map[string]Entity, err error) {
 
-	var rows *sql.Rows
+	var rows pgx.Rows
 
 	out = make(map[string]Entity)
 
 	SQL, args := s.buildStatement(keys...)
 
-	if rows, err = s.db.db.Query(SQL, args...); err != nil {
+	if rows, err = s.db.poolDb.Query(context.Background(), SQL, args...); err != nil {
 		return
 	}
-	defer func() { _ = rows.Close() }()
 
 	// Scan row by row and fetch entities
 	var entity Entity
 
 	for rows.Next() {
 		jsonDoc := JsonDoc{}
-		if err = rows.Scan(&jsonDoc.Id, &jsonDoc.Data); err != nil {
+		if err := rows.Scan(&jsonDoc.Id, &jsonDoc.Data); err != nil {
 			return nil, err
 		}
 		if entity, err = s.unMarshal(&jsonDoc, nil); err != nil {
@@ -530,23 +535,22 @@ func (s *sqliteDatabaseQuery) GetMap(keys ...string) (out map[string]Entity, err
 		}
 	}
 
-	_ = rows.Close()
+	rows.Close()
 	return
 }
 
 // GetIDs Execute query based on the where criteria, order and pagination and return the results as a list of Ids
-func (s *sqliteDatabaseQuery) GetIDs(keys ...string) (out []string, err error) {
+func (s *postgresDatabaseQuery) GetIDs(keys ...string) (out []string, err error) {
 
-	var rows *sql.Rows
+	var rows pgx.Rows
 
 	out = make([]string, 0)
 
 	SQL, args := s.buildIdStatement(keys...)
 
-	if rows, err = s.db.db.Query(SQL, args...); err != nil {
+	if rows, err = s.db.poolDb.Query(context.Background(), SQL, args...); err != nil {
 		return
 	}
-	defer func() { _ = rows.Close() }()
 
 	// Scan row by row and fetch ID
 	for rows.Next() {
@@ -555,11 +559,13 @@ func (s *sqliteDatabaseQuery) GetIDs(keys ...string) (out []string, err error) {
 			out = append(out, id)
 		}
 	}
+
+	rows.Close()
 	return
 }
 
 // Delete Execute delete command based on the where criteria
-func (s *sqliteDatabaseQuery) Delete(keys ...string) (total int64, err error) {
+func (s *postgresDatabaseQuery) Delete(keys ...string) (total int64, err error) {
 
 	tblName := tableName(s.factory().TABLE(), keys...)
 	where, args := s.buildCriteria(0)
@@ -568,22 +574,22 @@ func (s *sqliteDatabaseQuery) Delete(keys ...string) (total int64, err error) {
 	// Build the SQL
 	SQL := fmt.Sprintf(`DELETE FROM "%s" %s %s`, tblName, where, limit)
 
-	if res, ser := s.db.db.Exec(SQL, args...); ser != nil {
+	if res, ser := s.db.poolDb.Exec(context.Background(), SQL, args...); err != nil {
 		return 0, ser
 	} else {
-		return res.RowsAffected()
+		return res.RowsAffected(), nil
 	}
 }
 
 // SetField Update single field of all the documents meeting the criteria in a single transaction
-func (s *sqliteDatabaseQuery) SetField(field string, value any, keys ...string) (total int64, err error) {
+func (s *postgresDatabaseQuery) SetField(field string, value any, keys ...string) (total int64, err error) {
 	fields := make(map[string]any)
 	fields[field] = value
 	return s.SetFields(fields, keys...)
 }
 
 // SetFields Update multiple fields of all the documents meeting the criteria in a single transaction
-func (s *sqliteDatabaseQuery) SetFields(fields map[string]any, keys ...string) (total int64, err error) {
+func (s *postgresDatabaseQuery) SetFields(fields map[string]any, keys ...string) (total int64, err error) {
 
 	if len(fields) == 0 {
 		return 0, nil
@@ -592,7 +598,7 @@ func (s *sqliteDatabaseQuery) SetFields(fields map[string]any, keys ...string) (
 	entity := s.factory()
 	tblName := tableName(entity.TABLE(), keys...)
 
-	// Build a json_set(data, '$.field1', ?1, '$.field2', ?2, ...) with every
+	// Build a jsonb_build_object('field1', $1, 'field2', $2, ...) with every
 	// value passed as a bind parameter. Field names cannot be parameterized so
 	// they are validated as safe identifiers to prevent SQL injection.
 	allArgs := make([]any, 0, len(fields))
@@ -603,7 +609,13 @@ func (s *sqliteDatabaseQuery) SetFields(fields map[string]any, keys ...string) (
 			return 0, fmt.Errorf("invalid field name: %q", f)
 		}
 
-		pairs = append(pairs, fmt.Sprintf("'$.%s', ?%d", f, i))
+		// add casting: $1::int
+		if _, ok := v.(int); ok {
+			pairs = append(pairs, fmt.Sprintf("'%s', $%d::int", f, i))
+		} else {
+			pairs = append(pairs, fmt.Sprintf("'%s', $%d", f, i))
+		}
+
 		allArgs = append(allArgs, v)
 		i++
 	}
@@ -612,12 +624,12 @@ func (s *sqliteDatabaseQuery) SetFields(fields map[string]any, keys ...string) (
 	where, args := s.buildCriteria(i)
 	allArgs = append(allArgs, args...)
 
-	SQL := fmt.Sprintf(`UPDATE "%s" SET data = json_set(data, %s) %s`, tblName, strings.Join(pairs, ", "), where)
+	SQL := fmt.Sprintf(`UPDATE "%s" SET data = data || jsonb_build_object(%s) %s`, tblName, strings.Join(pairs, ", "), where)
 
-	if res, er := s.db.db.Exec(SQL, allArgs...); er != nil {
+	if res, er := s.db.poolDb.Exec(context.Background(), SQL, allArgs...); er != nil {
 		return 0, er
 	} else {
-		return res.RowsAffected()
+		return res.RowsAffected(), nil
 	}
 }
 
@@ -626,7 +638,7 @@ func (s *sqliteDatabaseQuery) SetFields(fields map[string]any, keys ...string) (
 // region Query ToString Methods ---------------------------------------------------------------------------------------
 
 // ToString Get the string representation of the query
-func (s *sqliteDatabaseQuery) ToString() string {
+func (s *postgresDatabaseQuery) ToString() string {
 	// Create Json representing the internal builder
 	if bytes, err := Marshal(s); err != nil {
 		return err.Error()
@@ -640,7 +652,7 @@ func (s *sqliteDatabaseQuery) ToString() string {
 // region Query Internal Methods ---------------------------------------------------------------------------------------
 
 // Unmarshal database Json document to Entity
-func (s *sqliteDatabaseQuery) unMarshal(jsonDoc *JsonDoc, errIn error) (Entity, error) {
+func (s *postgresDatabaseQuery) unMarshal(jsonDoc *JsonDoc, errIn error) (Entity, error) {
 	if errIn != nil {
 		return nil, errIn
 	}
@@ -654,7 +666,7 @@ func (s *sqliteDatabaseQuery) unMarshal(jsonDoc *JsonDoc, errIn error) (Entity, 
 }
 
 // Transform the entity through the chain of callbacks
-func (s *sqliteDatabaseQuery) processCallbacks(in Entity) (out Entity) {
+func (s *postgresDatabaseQuery) processCallbacks(in Entity) (out Entity) {
 	if len(s.callbacks) == 0 {
 		out = in
 		return
@@ -672,30 +684,24 @@ func (s *sqliteDatabaseQuery) processCallbacks(in Entity) (out Entity) {
 	return
 }
 
-// buildTimeBucket returns a SQLite expression that truncates the epoch-millis
-// value stored in the given time field down to the interval boundary, yielding
-// epoch seconds (SQLite has no date_trunc/to_timestamp). The caller must have
-// validated field via isSafeFieldName.
-func (s *sqliteDatabaseQuery) buildTimeBucket(field string, interval time.Duration) string {
+// Calculate postgres specific date part from time Duration
+func (s *postgresDatabaseQuery) calculateDatePart(interval time.Duration) string {
 
-	// epoch seconds from the stored millis value
-	es := fmt.Sprintf("(CAST(data->>'%s' AS INTEGER)/1000)", field)
-
+	// calculate date part
+	dp := "minute"
 	switch interval {
 	case time.Minute:
-		return fmt.Sprintf("((%s/60)*60)", es)
+		dp = "minute"
 	case time.Hour:
-		return fmt.Sprintf("((%s/3600)*3600)", es)
+		dp = "hour"
 	case time.Hour * 24:
-		return fmt.Sprintf("((%s/86400)*86400)", es)
+		dp = "day"
 	case time.Hour * 24 * 7:
-		// align to Monday (epoch day 0 = Thursday)
-		return fmt.Sprintf("(((%s/86400+3)/7*7-3)*86400)", es)
+		dp = "week"
 	case time.Hour * 24 * 30:
-		return fmt.Sprintf("(CAST(strftime('%%s', datetime(%s,'unixepoch','start of month')) AS INTEGER))", es)
-	default:
-		return fmt.Sprintf("((%s/60)*60)", es)
+		dp = "month"
 	}
+	return dp
 }
 
 // endregion

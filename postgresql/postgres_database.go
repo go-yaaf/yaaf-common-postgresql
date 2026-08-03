@@ -1,17 +1,25 @@
-// SQLiteDatabase object database implementations of IDatabase interface
+// Postgresql object database implementations of IDatabase interface
 //
 
-package sqlitedb
+package postgresql
 
 import (
-	"database/sql"
+	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"cloud.google.com/go/cloudsqlconn"
+	"github.com/go-yaaf/yaaf-common/config"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/go-yaaf/yaaf-common/database"
 	. "github.com/go-yaaf/yaaf-common/entity"
@@ -21,68 +29,182 @@ import (
 
 // region Database store definitions -----------------------------------------------------------------------------------
 
-type SQLiteDatabase struct {
-	bus messaging.IMessageBus
-	uri string
-	db  *sql.DB
+type PostgresDatabase struct {
+	poolDb *pgxpool.Pool
+	bus    messaging.IMessageBus
+	uri    string
 }
 
 const (
-	sqlInsert      = `INSERT INTO "%s" (id, data) VALUES (?1, ?2)`
-	sqlUpdate      = `UPDATE "%s" SET data = ?2 WHERE id = ?1`
-	sqlUpsert      = `INSERT INTO "%s" (id, data) VALUES (?1, ?2) ON CONFLICT (id) DO UPDATE SET data = excluded.data`
-	sqlDelete      = `DELETE FROM "%s" WHERE id = ?1`
-	sqlBulkDelete  = `DELETE FROM "%s" WHERE id IN (SELECT value FROM json_each(?1))`
-	ddlDropTable   = `DROP TABLE IF EXISTS "%s"`
-	ddlCreateTable = `CREATE TABLE IF NOT EXISTS "%s" (id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL default '{}')`
-	ddlCreateIndex = `CREATE INDEX IF NOT EXISTS %s_%s_idx ON "%s" ((data->>'%s'))`
-	ddlPurgeTable  = `DELETE FROM "%s"`
+	sqlInsert             = `INSERT INTO "%s" (id, data) VALUES ($1, $2)`
+	sqlUpdate             = `UPDATE "%s" SET data = $2 WHERE id = $1`
+	sqlUpsert             = `INSERT INTO "%s" (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data = $2`
+	sqlDelete             = `DELETE FROM "%s" WHERE id = $1`
+	sqlBulkDelete         = `DELETE FROM "%s" WHERE id = ANY($1)`
+	sqlUpdateField        = `UPDATE "%s" SET data = jsonb_set(data, '{%s}', '"%s"', true) WHERE id = '%s'`
+	sqlUpdateNumericField = `UPDATE "%s" SET data = jsonb_set(data, '{%s}', '%d', true) WHERE id = '%s'`
+	ddlDropTable          = `DROP TABLE IF EXISTS "%s" CASCADE`
+	ddlCreateTable        = `CREATE TABLE IF NOT EXISTS "%s" (id character varying PRIMARY KEY NOT NULL, data jsonb NOT NULL default '{}')`
+	ddlCreateIndex        = `CREATE INDEX IF NOT EXISTS %s_%s_idx ON "%s" USING BTREE ((data->>'%s'))`
+	ddlPurgeTable         = `TRUNCATE "%s" RESTART IDENTITY CASCADE`
 )
 
 // endregion
 
 // region Factory method for Database store ----------------------------------------------------------------------------
 
-// NewSQLiteStore factory method for datastore
-// param: URI - represents the database connection string in the format of: sqlitedb://user:password@host:port/database_name?application_name
+// NewPostgresStore factory method for datastore
+// param: URI - represents the database connection string in the format of: postgresql://user:password@host:port/database_name?application_name
 // return: IDatabase instance, error
-func NewSQLiteStore(URI string) (dbs database.IDatastore, err error) {
-	return createSQLiteDatabase(URI)
+func NewPostgresStore(URI string) (dbs database.IDatastore, err error) {
+	return createPostgresDatabase(URI)
 }
 
-// NewSQLiteDatabase factory method for database
-// param: URI - represents the database connection string in the format of: sqlitedb://user:password@host:port/database_name?application_name
+// NewPostgresDatabase factory method for database
+// param: URI - represents the database connection string in the format of: postgresql://user:password@host:port/database_name?application_name
 // return: IDatabase instance, error
-func NewSQLiteDatabase(URI string) (dbs database.IDatabase, err error) {
-	return createSQLiteDatabase(URI)
+func NewPostgresDatabase(URI string) (dbs database.IDatabase, err error) {
+	return createPostgresDatabase(URI)
 }
 
-// NewSQLiteDatabaseWithMessageBus factory method for database with injected message bus
-// param: URI - represents the database connection string in the format of: sqlitedb://user:password@host:port/database_name?application_name
+// NewPostgresDatabaseWithMessageBus factory method for database with injected message bus
+// param: URI - represents the database connection string in the format of: postgresql://user:password@host:port/database_name?application_name
 // return: IDatabase instance, error
-func NewSQLiteDatabaseWithMessageBus(URI string, bus messaging.IMessageBus) (dbs database.IDatabase, err error) {
-	var db *SQLiteDatabase
-	if db, err = createSQLiteDatabase(URI); err != nil {
+func NewPostgresDatabaseWithMessageBus(URI string, bus messaging.IMessageBus) (dbs database.IDatabase, err error) {
+	var db *PostgresDatabase
+	if db, err = createPostgresDatabase(URI); err != nil {
 		return
 	}
 	db.bus = bus
 	return db, nil
 }
 
-func createSQLiteDatabase(dbUri string) (*SQLiteDatabase, error) {
+func createPostgresDatabase(dbUri string) (dbs *PostgresDatabase, err error) {
+	var (
+		connStr  string
+		poolCfg  *pgxpool.Config
+		poolConn *pgxpool.Pool
+	)
 
-	if db, err := sql.Open("sqlite", dbUri); err != nil {
+	// Ensure driver name
+	if _, connStr, err = convertConnectionString(dbUri); err != nil {
 		return nil, err
-	} else {
-		return &SQLiteDatabase{db: db, uri: dbUri}, nil
 	}
+
+	if poolCfg, err = pgxpool.ParseConfig(connStr); err != nil {
+		return
+	}
+
+	poolCfg.MaxConns = int32(config.Get().MaxDbConnections())
+
+	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		logger.Debug("new client db connection established.")
+		return nil
+	}
+
+	poolCfg.BeforeClose = func(conn *pgx.Conn) {
+		logger.Debug("client db connection closed.")
+	}
+
+	//try to get connection name. If we got one non-empty,
+	//means we are connection via cloud-sql-proxy-connector-go
+	dbConnName := config.Get().RdsInstanceName()
+
+	if dbConnName != "" {
+		var d *cloudsqlconn.Dialer
+
+		d, err = cloudsqlconn.NewDialer(context.Background())
+
+		if err != nil {
+			return
+		}
+
+		poolCfg.ConnConfig.DialFunc = func(ctx context.Context, _ string, _ string) (net.Conn, error) {
+			return d.Dial(ctx, dbConnName)
+		}
+	}
+
+	if poolConn, err = pgxpool.NewWithConfig(context.Background(), poolCfg); err != nil {
+		return
+	}
+
+	if err = poolConn.Ping(context.Background()); err != nil {
+		return
+	}
+	dbs = &PostgresDatabase{poolDb: poolConn, uri: dbUri}
+	return
+}
+
+// convertConnectionString Convert URI style connection to DB connection string in the format of:
+// postgres://user:password@host:port/database_name
+// param: dbUri - The database URI
+// return: driver name, connection string, error
+func convertConnectionString(dbUri string) (driver string, connStr string, err error) {
+	uri, err := url.Parse(strings.TrimSpace(dbUri))
+	if err != nil {
+		// Do not echo the raw URI - it may contain the password.
+		return "", "", fmt.Errorf("database URI parsing failed: %s", err.Error())
+	}
+
+	usr := uri.User.Username()
+	pwd, _ := uri.User.Password()
+
+	driver = strings.ToLower(uri.Scheme)
+	if driver == "postgresql" {
+		driver = "postgres"
+	}
+
+	if driver != "postgres" {
+		return "", "", fmt.Errorf("schema for postgresql database must be: postgres")
+	}
+
+	dbName := strings.TrimPrefix(uri.Path, "/") // Remove slash
+
+	// Set default values
+	host := uri.Host
+	port := "5432"
+	if strings.Contains(uri.Host, ":") {
+		host, port, err = net.SplitHostPort(uri.Host)
+		if err != nil {
+			// uri.Redacted() masks the password in the URI.
+			return "", "", fmt.Errorf("URI: %s host:port parsing failed: %s", uri.Redacted(), err.Error())
+		}
+	}
+
+	// Get the app name
+	appName := ""
+	params := uri.Query()
+	if _, ok := params["application_name"]; ok {
+		appName = params["application_name"][0]
+	} else if _, ok := params["ApplicationName"]; ok {
+		appName = params["ApplicationName"][0]
+	}
+
+	// Honor the sslmode provided in the URI; default to a secure mode.
+	// TLS must NOT be silently disabled - that would send credentials and data
+	// in plaintext and expose the connection to MITM attacks.
+	sslMode := "require"
+	if v := params.Get("sslmode"); v != "" {
+		sslMode = v
+	}
+
+	// if application_name parameter is not provided, get it from the executable name
+	if len(appName) == 0 {
+		executablePath := os.Args[0]            // Gets the path of the currently running executable
+		appName = filepath.Base(executablePath) // Extracts the executable name from the path
+	}
+
+	connStr = fmt.Sprintf("host=%s port=%s dbname=%s user=%s password=%s sslmode=%s application_name=%s",
+		host, port, dbName, usr, pwd, sslMode, appName)
+
+	return "pgx", connStr, nil
 }
 
 // Ping Test database connectivity
 //
 // param: retries - how many retries are required (max 10)
 // param: intervalInSeconds - time interval (in seconds) between retries (max 60)
-func (dbs *SQLiteDatabase) Ping(retries uint, intervalInSeconds uint) error {
+func (dbs *PostgresDatabase) Ping(retries uint, intervalInSeconds uint) error {
 
 	if retries > 10 {
 		retries = 10
@@ -93,7 +215,7 @@ func (dbs *SQLiteDatabase) Ping(retries uint, intervalInSeconds uint) error {
 	}
 
 	for try := 1; try <= int(retries); try++ {
-		err := dbs.db.Ping()
+		err := dbs.poolDb.Ping(context.Background())
 		if err == nil {
 			return nil
 		}
@@ -109,18 +231,19 @@ func (dbs *SQLiteDatabase) Ping(retries uint, intervalInSeconds uint) error {
 }
 
 // Close DB and free resources
-func (dbs *SQLiteDatabase) Close() error {
-	return dbs.db.Close()
+func (dbs *PostgresDatabase) Close() error {
+	dbs.poolDb.Close()
+	return nil
 }
 
 // CloneDatabase Returns a clone (copy) of the database instance
-func (dbs *SQLiteDatabase) CloneDatabase() (database.IDatabase, error) {
-	return NewSQLiteDatabaseWithMessageBus(dbs.uri, dbs.bus)
+func (dbs *PostgresDatabase) CloneDatabase() (database.IDatabase, error) {
+	return NewPostgresDatabaseWithMessageBus(dbs.uri, dbs.bus)
 }
 
 // CloneDatastore Returns a clone (copy) of the database instance
-func (dbs *SQLiteDatabase) CloneDatastore() (database.IDatastore, error) {
-	return NewSQLiteStore(dbs.uri)
+func (dbs *PostgresDatabase) CloneDatastore() (database.IDatastore, error) {
+	return NewPostgresStore(dbs.uri)
 }
 
 // Resolve table name from entity class name and shard keys
@@ -175,10 +298,10 @@ func tableName(table string, keys ...string) (tblName string) {
 // param: entityID - Entity id
 // param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
 // return: Entity, error
-func (dbs *SQLiteDatabase) Get(factory EntityFactory, entityID string, keys ...string) (result Entity, err error) {
+func (dbs *PostgresDatabase) Get(factory EntityFactory, entityID string, keys ...string) (result Entity, err error) {
 
 	var (
-		rows *sql.Rows
+		rows pgx.Rows
 	)
 
 	result = factory()
@@ -195,14 +318,14 @@ func (dbs *SQLiteDatabase) Get(factory EntityFactory, entityID string, keys ...s
 		return nil, fmt.Errorf("empty entity id passed to Get operation")
 	}
 
-	SQL := fmt.Sprintf(`SELECT id, data FROM "%s" WHERE id = ?1`, tableName(result.TABLE(), keys...))
+	SQL := fmt.Sprintf(`SELECT id, data FROM "%s" WHERE id = $1`, tableName(result.TABLE(), keys...))
 
-	if rows, err = dbs.db.Query(SQL, entityID); err != nil {
+	if rows, err = dbs.poolDb.Query(context.Background(), SQL, entityID); err != nil {
 		return nil, err
 	}
 
 	// Connection is released to pool only after rows is closed.
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	if !rows.Next() {
 		return nil, fmt.Errorf("no row fetched for id: %s", entityID)
@@ -226,17 +349,17 @@ func (dbs *SQLiteDatabase) Get(factory EntityFactory, entityID string, keys ...s
 // param: entityID - Entity id
 // param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
 // return: bool, error
-func (dbs *SQLiteDatabase) Exists(factory EntityFactory, entityID string, keys ...string) (result bool, err error) {
+func (dbs *PostgresDatabase) Exists(factory EntityFactory, entityID string, keys ...string) (result bool, err error) {
 
-	var rows *sql.Rows
+	var rows pgx.Rows
 
-	SQL := fmt.Sprintf(`SELECT id FROM "%s" WHERE id = ?1`, tableName(factory().TABLE(), keys...))
+	SQL := fmt.Sprintf(`SELECT id FROM "%s" WHERE id = $1`, tableName(factory().TABLE(), keys...))
 
-	if rows, err = dbs.db.Query(SQL, entityID); err != nil {
+	if rows, err = dbs.poolDb.Query(context.Background(), SQL, entityID); err != nil {
 		return false, err
 	}
 	result = rows.Next()
-	_ = rows.Close()
+	rows.Close()
 	return result, nil
 }
 
@@ -246,10 +369,10 @@ func (dbs *SQLiteDatabase) Exists(factory EntityFactory, entityID string, keys .
 // param: entityIDs - List of Entity IDs
 // param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
 // return: []Entity, error
-func (dbs *SQLiteDatabase) List(factory EntityFactory, entityIDs []string, keys ...string) (list []Entity, err error) {
+func (dbs *PostgresDatabase) List(factory EntityFactory, entityIDs []string, keys ...string) (list []Entity, err error) {
 
 	var (
-		rows *sql.Rows
+		rows pgx.Rows
 	)
 
 	list = make([]Entity, 0)
@@ -260,15 +383,11 @@ func (dbs *SQLiteDatabase) List(factory EntityFactory, entityIDs []string, keys 
 	}
 
 	table := tableName(factory().TABLE(), keys...)
-	SQL := fmt.Sprintf(`SELECT id, data FROM "%s" WHERE id IN (SELECT value FROM json_each(?1))`, table)
-	jsonIDs, err := json.Marshal(entityIDs)
-	if err != nil {
-		return nil, err
-	}
-	if rows, err = dbs.db.Query(SQL, string(jsonIDs)); err != nil {
+	SQL := fmt.Sprintf(`SELECT id, data FROM "%s" WHERE id = ANY($1)`, table)
+	if rows, err = dbs.poolDb.Query(context.Background(), SQL, entityIDs); err != nil {
 		return
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	for rows.Next() {
 		jsonDoc := JsonDoc{}
@@ -287,102 +406,86 @@ func (dbs *SQLiteDatabase) List(factory EntityFactory, entityIDs []string, keys 
 //
 // param: entity - The entity to insert
 // return: Inserted Entity, error
-func (dbs *SQLiteDatabase) Insert(entity Entity) (Entity, error) {
+func (dbs *PostgresDatabase) Insert(entity Entity) (added Entity, err error) {
 	var (
-		result sql.Result
+		result pgconn.CommandTag
+		data   []byte
 	)
 
 	tblName := tableName(entity.TABLE(), entity.KEY())
 
 	SQL := fmt.Sprintf(sqlInsert, tblName)
-	data, err := Marshal(entity)
-	if err != nil {
-		return nil, err
+	if data, err = Marshal(entity); err != nil {
+		return
 	}
 
-	result, err = dbs.db.Exec(SQL, entity.ID(), data)
-	if err != nil {
-		return nil, err
+	if result, err = dbs.poolDb.Exec(context.Background(), SQL, entity.ID(), data); err != nil {
+		return
 	}
-
-	num, err := result.RowsAffected()
-	if err != nil {
-		return nil, err
-	} else if num == 0 {
-		return nil, fmt.Errorf("no row affected by insert operation")
+	if result.RowsAffected() == 0 {
+		err = fmt.Errorf("no row affected when inserting new entity")
 	}
+	added = entity
 
 	// Publish the change
-	dbs.publishChange(AddEntity, entity)
-	return entity, nil
+	dbs.publishChange(AddEntity, added)
+	return
 }
 
 // Update existing entity
 //
 // param: entity - The entity to update
 // return: Updated Entity, error
-func (dbs *SQLiteDatabase) Update(entity Entity) (Entity, error) {
+func (dbs *PostgresDatabase) Update(entity Entity) (updated Entity, err error) {
+
 	var (
-		result sql.Result
+		result pgconn.CommandTag
+		data   []byte
 	)
 
 	tblName := tableName(entity.TABLE(), entity.KEY())
-
 	SQL := fmt.Sprintf(sqlUpdate, tblName)
-	data, err := Marshal(entity)
-	if err != nil {
-		return nil, err
+	if data, err = Marshal(entity); err != nil {
+		return
 	}
 
-	result, err = dbs.db.Exec(SQL, entity.ID(), data)
-	if err != nil {
-		return nil, err
+	if result, err = dbs.poolDb.Exec(context.Background(), SQL, entity.ID(), data); err != nil {
+		return
 	}
-
-	num, err := result.RowsAffected()
-	if err != nil {
-		return nil, err
-	} else if num == 0 {
-		return nil, fmt.Errorf("no row affected by update operation")
+	if result.RowsAffected() == 0 {
+		return nil, fmt.Errorf("no row affected when executing update operation")
 	}
+	updated = entity
 
 	// Publish the change
 	dbs.publishChange(UpdateEntity, entity)
-	return entity, nil
+	return
 }
 
 // Upsert Update entity or insert it if it does not exist
 //
 // param: entity - The entity to update
 // return: Updated Entity, error
-func (dbs *SQLiteDatabase) Upsert(entity Entity) (Entity, error) {
+func (dbs *PostgresDatabase) Upsert(entity Entity) (updated Entity, err error) {
 	var (
-		result sql.Result
+		data []byte
 	)
 
 	tblName := tableName(entity.TABLE(), entity.KEY())
-
 	SQL := fmt.Sprintf(sqlUpsert, tblName)
-	data, err := Marshal(entity)
-	if err != nil {
-		return nil, err
+	if data, err = Marshal(entity); err != nil {
+		return
 	}
 
-	result, err = dbs.db.Exec(SQL, entity.ID(), data)
-	if err != nil {
-		return nil, err
+	if _, err = dbs.poolDb.Exec(context.Background(), SQL, entity.ID(), data); err != nil {
+		return
 	}
 
-	num, err := result.RowsAffected()
-	if err != nil {
-		return nil, err
-	} else if num == 0 {
-		return nil, fmt.Errorf("no row affected by update operation")
-	}
+	updated = entity
 
 	// Publish the change
 	dbs.publishChange(UpdateEntity, entity)
-	return entity, nil
+	return
 }
 
 // Delete entity
@@ -391,8 +494,11 @@ func (dbs *SQLiteDatabase) Upsert(entity Entity) (Entity, error) {
 // param: entityID - Entity ID to delete
 // param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
 // return: error
-func (dbs *SQLiteDatabase) Delete(factory EntityFactory, entityID string, keys ...string) (err error) {
-
+func (dbs *PostgresDatabase) Delete(factory EntityFactory, entityID string, keys ...string) (err error) {
+	var (
+	//affected int64
+	//result   sql.Result
+	)
 	entity := factory()
 
 	// Get entity
@@ -403,9 +509,16 @@ func (dbs *SQLiteDatabase) Delete(factory EntityFactory, entityID string, keys .
 
 	tblName := tableName(entity.TABLE(), keys...)
 	SQL := fmt.Sprintf(sqlDelete, tblName)
-	if _, err = dbs.db.Exec(SQL, entityID); err != nil {
+	if _, err = dbs.poolDb.Exec(context.Background(), SQL, entityID); err != nil {
 		return
 	}
+	/*
+		if affected, err = result.RowsAffected(); err != nil {
+			return
+		} else if affected == 0 {
+			return fmt.Errorf("no row affected when executing delete operation")
+		}
+	*/
 	// Publish the change
 	dbs.publishChange(DeleteEntity, deleted)
 	return
@@ -419,7 +532,7 @@ func (dbs *SQLiteDatabase) Delete(factory EntityFactory, entityID string, keys .
 //
 // param: entities - List of entities to insert
 // return: Number of inserted entities, error
-func (dbs *SQLiteDatabase) BulkInsert(entities []Entity) (affected int64, err error) {
+func (dbs *PostgresDatabase) BulkInsert(entities []Entity) (affected int64, err error) {
 
 	if len(entities) == 0 {
 		return 0, nil
@@ -431,7 +544,7 @@ func (dbs *SQLiteDatabase) BulkInsert(entities []Entity) (affected int64, err er
 	valueArgs := make([]any, 0, len(entities)*2)
 	i := 0
 	for _, entity := range entities {
-		valueStrings = append(valueStrings, fmt.Sprintf("(?%d, ?%d)", i*2+1, i*2+2))
+		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d)", i*2+1, i*2+2))
 		valueArgs = append(valueArgs, entity.ID())
 		bytes, _ := Marshal(entity)
 		valueArgs = append(valueArgs, string(bytes))
@@ -439,9 +552,19 @@ func (dbs *SQLiteDatabase) BulkInsert(entities []Entity) (affected int64, err er
 	}
 	SQL := fmt.Sprintf(`INSERT INTO "%s" (id, data) VALUES %s`, table, strings.Join(valueStrings, ","))
 
-	if _, err = dbs.db.Exec(SQL, valueArgs...); err != nil {
+	var (
+	//result sql.Result
+	)
+	if _, err = dbs.poolDb.Exec(context.Background(), SQL, valueArgs...); err != nil {
 		return
 	}
+	/*
+		if affected, err = result.RowsAffected(); err != nil {
+			return
+		} else if affected == 0 {
+			return affected, fmt.Errorf("no row affected when executing bulk insert operation")
+		}
+	*/
 
 	// Publish the change
 	for _, entity := range entities {
@@ -454,16 +577,19 @@ func (dbs *SQLiteDatabase) BulkInsert(entities []Entity) (affected int64, err er
 //
 // param: entities - List of entities to update
 // return: Number of updated entities, error
-func (dbs *SQLiteDatabase) BulkUpdate(entities []Entity) (affected int64, err error) {
+func (dbs *PostgresDatabase) BulkUpdate(entities []Entity) (affected int64, err error) {
 
 	if len(entities) == 0 {
 		return 0, nil
 	}
 
-	var tx *sql.Tx
+	var (
+		tx pgx.Tx
+	)
 
 	// Start transaction
-	if tx, err = dbs.db.Begin(); err != nil {
+	ctx := context.Background()
+	if tx, err = dbs.poolDb.Begin(ctx); err != nil {
 		return
 	}
 
@@ -472,13 +598,14 @@ func (dbs *SQLiteDatabase) BulkUpdate(entities []Entity) (affected int64, err er
 		table := tableName(entity.TABLE(), entity.KEY())
 		SQL := fmt.Sprintf(sqlUpdate, table)
 		data, _ := Marshal(entity)
-		if _, err = dbs.db.Exec(SQL, entity.ID(), data); err != nil {
-			return 0, tx.Rollback()
+		if _, err = dbs.poolDb.Exec(ctx, SQL, entity.ID(), data); err != nil {
+			_ = tx.Rollback(ctx)
+			return 0, err
 		}
 	}
 
 	// Commit the transaction
-	if err = tx.Commit(); err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		return
 	} else {
 		affected = int64(len(entities))
@@ -495,16 +622,19 @@ func (dbs *SQLiteDatabase) BulkUpdate(entities []Entity) (affected int64, err er
 //
 // param: entities - List of entities to upsert
 // return: Number of updated entities, error
-func (dbs *SQLiteDatabase) BulkUpsert(entities []Entity) (affected int64, err error) {
+func (dbs *PostgresDatabase) BulkUpsert(entities []Entity) (affected int64, err error) {
 
 	if len(entities) == 0 {
 		return 0, nil
 	}
 
-	var tx *sql.Tx
+	var (
+		tx pgx.Tx
+	)
 
 	// Start transaction
-	if tx, err = dbs.db.Begin(); err != nil {
+	ctx := context.Background()
+	if tx, err = dbs.poolDb.Begin(ctx); err != nil {
 		return
 	}
 
@@ -513,13 +643,14 @@ func (dbs *SQLiteDatabase) BulkUpsert(entities []Entity) (affected int64, err er
 		table := tableName(entity.TABLE(), entity.KEY())
 		SQL := fmt.Sprintf(sqlUpsert, table)
 		data, _ := Marshal(entity)
-		if _, err = dbs.db.Exec(SQL, entity.ID(), data); err != nil {
-			return 0, tx.Rollback()
+		if _, err = dbs.poolDb.Exec(ctx, SQL, entity.ID(), data); err != nil {
+			_ = tx.Rollback(ctx)
+			return 0, err
 		}
 	}
 
 	// Commit the transaction
-	if err = tx.Commit(); err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		return
 	} else {
 		affected = int64(len(entities))
@@ -538,9 +669,9 @@ func (dbs *SQLiteDatabase) BulkUpsert(entities []Entity) (affected int64, err er
 // param: entityIDs - List of entities IDs to delete
 // param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
 // return: Number of deleted entities, error
-func (dbs *SQLiteDatabase) BulkDelete(factory EntityFactory, entityIDs []string, keys ...string) (affected int64, err error) {
+func (dbs *PostgresDatabase) BulkDelete(factory EntityFactory, entityIDs []string, keys ...string) (affected int64, err error) {
 	var (
-		result sql.Result
+		result pgconn.CommandTag
 		entity = factory()
 	)
 
@@ -558,20 +689,12 @@ func (dbs *SQLiteDatabase) BulkDelete(factory EntityFactory, entityIDs []string,
 
 	SQL := fmt.Sprintf(sqlBulkDelete, tblName)
 
-	// Convert array of entityIDs to its json string
-	jsonBytes, err := json.Marshal(entityIDs)
-	if err != nil {
-		return 0, err
-	}
-	jsonString := string(jsonBytes)
-
-	if result, err = dbs.db.Exec(SQL, jsonString); err != nil {
+	if result, err = dbs.poolDb.Exec(context.Background(), SQL, entityIDs); err != nil {
 		return
 	}
 
-	if affected, err = result.RowsAffected(); err != nil {
-		return
-	} else if affected == 0 {
+	affected = result.RowsAffected()
+	if affected == 0 {
 		return 0, fmt.Errorf("no row affected when executing delete operation")
 	}
 
@@ -594,7 +717,7 @@ func (dbs *SQLiteDatabase) BulkDelete(factory EntityFactory, entityIDs []string,
 // param: value - The field value to update
 // param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
 // return: error
-func (dbs *SQLiteDatabase) SetField(factory EntityFactory, entityID string, field string, value any, keys ...string) (err error) {
+func (dbs *PostgresDatabase) SetField(factory EntityFactory, entityID string, field string, value any, keys ...string) (err error) {
 
 	entity := factory()
 	tblName := tableName(entity.TABLE(), keys...)
@@ -611,9 +734,9 @@ func (dbs *SQLiteDatabase) SetField(factory EntityFactory, entityID string, fiel
 		return fmt.Errorf("failed to encode field value: %w", jErr)
 	}
 
-	SQL := fmt.Sprintf(`UPDATE "%s" SET data = json_set(data, '$.%s', json(?1)) WHERE id = ?2`, tblName, field)
+	SQL := fmt.Sprintf(`UPDATE "%s" SET data = jsonb_set(data, '{%s}', $1::jsonb, false) WHERE id = $2`, tblName, field)
 
-	if _, err = dbs.db.Exec(SQL, string(jsonVal), entityID); err != nil {
+	if _, err = dbs.poolDb.Exec(context.Background(), SQL, string(jsonVal), entityID); err != nil {
 		return
 	}
 
@@ -631,7 +754,7 @@ func (dbs *SQLiteDatabase) SetField(factory EntityFactory, entityID string, fiel
 // param: fields - A map of field-value pairs to update
 // param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
 // return: error
-func (dbs *SQLiteDatabase) SetFields(factory EntityFactory, entityID string, fields map[string]any, keys ...string) (err error) {
+func (dbs *PostgresDatabase) SetFields(factory EntityFactory, entityID string, fields map[string]any, keys ...string) (err error) {
 
 	for f, v := range fields {
 		if er := dbs.SetField(factory, entityID, f, v, keys...); er != nil {
@@ -648,7 +771,7 @@ func (dbs *SQLiteDatabase) SetFields(factory EntityFactory, entityID string, fie
 // param: values - The map of entity Id to field value
 // param: keys - Sharding key(s) (for sharded entities and multi-tenant support)
 // return: Number of updated entities, error
-func (dbs *SQLiteDatabase) BulkSetFields(factory EntityFactory, field string, values map[string]any, keys ...string) (affected int64, error error) {
+func (dbs *PostgresDatabase) BulkSetFields(factory EntityFactory, field string, values map[string]any, keys ...string) (affected int64, error error) {
 
 	if len(values) == 0 {
 		return 0, nil
@@ -664,8 +787,9 @@ func (dbs *SQLiteDatabase) BulkSetFields(factory EntityFactory, field string, va
 
 	// Create temp table to map entity to field id
 	tmpTable := fmt.Sprintf("ch%d", time.Now().UnixMilli())
-	createTmp := fmt.Sprintf("CREATE TEMP TABLE %s (id TEXT PRIMARY KEY NOT NULL, val %s)", tmpTable, sqlType)
-	if _, err := dbs.db.Exec(createTmp); err != nil {
+	createTmp := fmt.Sprintf("create TEMP table %s (id character varying PRIMARY KEY NOT NULL, val %s)", tmpTable, sqlType)
+	ctx := context.Background()
+	if _, err := dbs.poolDb.Exec(ctx, createTmp); err != nil {
 		return 0, err
 	}
 
@@ -674,14 +798,14 @@ func (dbs *SQLiteDatabase) BulkSetFields(factory EntityFactory, field string, va
 	valueArgs := make([]any, 0, len(values)*2)
 	i := 0
 	for id, val := range values {
-		valueStrings = append(valueStrings, fmt.Sprintf("(?%d, ?%d)", i*2+1, i*2+2))
+		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d)", i*2+1, i*2+2))
 		valueArgs = append(valueArgs, id)
 		valueArgs = append(valueArgs, val)
 		i++
 	}
 	SQL := fmt.Sprintf(`INSERT INTO "%s" (id, val) VALUES %s`, tmpTable, strings.Join(valueStrings, ","))
 
-	if _, err := dbs.db.Exec(SQL, valueArgs...); err != nil {
+	if _, err := dbs.poolDb.Exec(ctx, SQL, valueArgs...); err != nil {
 		return 0, err
 	}
 
@@ -689,24 +813,24 @@ func (dbs *SQLiteDatabase) BulkSetFields(factory EntityFactory, field string, va
 	entity := factory()
 	tblName := tableName(entity.TABLE(), keys...)
 
-	SQL = fmt.Sprintf(`UPDATE "%s" SET data = json_set(data, '$.%s', %s.val) FROM %s WHERE %s.id = "%s".id`, tblName, field, tmpTable, tmpTable, tmpTable, tblName)
+	SQL = fmt.Sprintf("UPDATE %s SET data['%s'] = to_jsonb(%s.val) FROM %s WHERE %s.id = %s.id", tblName, field, tmpTable, tmpTable, tmpTable, tblName)
 
 	// Drop the temp table
 	defer func() {
 		DROP := fmt.Sprintf("DROP TABLE %s", tmpTable)
-		_, _ = dbs.db.Exec(DROP)
+		_, _ = dbs.poolDb.Exec(ctx, DROP)
 	}()
 
 	// Execute update
-	if result, err := dbs.db.Exec(SQL); err != nil {
+	if result, err := dbs.poolDb.Exec(ctx, SQL); err != nil {
 		return 0, err
 	} else {
-		return result.RowsAffected()
+		return result.RowsAffected(), nil
 	}
 }
 
 // Get the SQL type of the value
-func (dbs *SQLiteDatabase) getSqlType(values map[string]any) string {
+func (dbs *PostgresDatabase) getSqlType(values map[string]any) string {
 
 	typeName := "string"
 	for _, v := range values {
@@ -714,17 +838,17 @@ func (dbs *SQLiteDatabase) getSqlType(values map[string]any) string {
 		break
 	}
 	if strings.HasPrefix(typeName, "string") {
-		return "TEXT"
+		return "character varying"
 	}
 	if strings.HasPrefix(typeName, "float") {
-		return "REAL"
+		return "double precision"
 	}
 	if strings.HasPrefix(typeName, "bool") {
-		return "BOOLEAN"
+		return "boolean"
 	}
 
-	// For all other types (numbers, timestamp, enums) return INTEGER
-	return "INTEGER"
+	// For all other types (numbers, timestamp, enums) return bigint
+	return "bigint"
 }
 
 //endregion
@@ -735,16 +859,16 @@ func (dbs *SQLiteDatabase) getSqlType(values map[string]any) string {
 //
 // param: factory - Entity factory
 // return: Query object
-func (dbs *SQLiteDatabase) Query(factory EntityFactory) database.IQuery {
-	return &sqliteDatabaseQuery{
+func (dbs *PostgresDatabase) Query(factory EntityFactory) database.IQuery {
+	return &postgresDatabaseQuery{
 		db:              dbs,
 		factory:         factory,
 		filedNameToType: entityFieldsToTypesMap(factory),
 	}
 }
 
-func (dbs *SQLiteDatabase) AdvancedQuery(EntityFactory) database.IAdvancedQuery {
-	panic("SQLiteDatabase: IAdvancedQuery interface is not implemented/supported ")
+func (dbs *PostgresDatabase) AdvancedQuery(EntityFactory) database.IAdvancedQuery {
+	panic("PostgresDatabase: IAdvancedQuery interface is not implemented/supported ")
 }
 
 //endregion
@@ -755,17 +879,19 @@ func (dbs *SQLiteDatabase) AdvancedQuery(EntityFactory) database.IAdvancedQuery 
 //
 // param: ddl - The ddl parameter is a map of strings (table names) to array of strings (list of fields to index)
 // return: error
-func (dbs *SQLiteDatabase) ExecuteDDL(ddl map[string][]string) (err error) {
+func (dbs *PostgresDatabase) ExecuteDDL(ddl map[string][]string) (err error) {
 
+	ctx := context.Background()
 	for table, fields := range ddl {
+
 		SQL := fmt.Sprintf(ddlCreateTable, table)
-		if _, err = dbs.db.Exec(SQL); err != nil {
+		if _, err = dbs.poolDb.Exec(ctx, SQL); err != nil {
 			logger.Error("%s error: %s", SQL, err.Error())
 			return
 		}
 		for _, field := range fields {
 			SQL = fmt.Sprintf(ddlCreateIndex, table, field, table, field)
-			if _, err = dbs.db.Exec(SQL); err != nil {
+			if _, err = dbs.poolDb.Exec(ctx, SQL); err != nil {
 				logger.Error("%s error: %s", SQL, err.Error())
 				return
 			}
@@ -779,24 +905,24 @@ func (dbs *SQLiteDatabase) ExecuteDDL(ddl map[string][]string) (err error) {
 // param: sql - The SQL command to execute
 // param: args - Statement arguments
 // return: Number of affected records, error
-func (dbs *SQLiteDatabase) ExecuteSQL(sql string, args ...any) (int64, error) {
+func (dbs *PostgresDatabase) ExecuteSQL(sql string, args ...any) (int64, error) {
 
-	if result, err := dbs.db.Exec(sql, args...); err != nil {
+	if result, err := dbs.poolDb.Exec(context.Background(), sql, args...); err != nil {
 		logger.Error("%s error: %s", sql, err.Error())
 		return 0, err
 	} else {
-		return result.RowsAffected()
+		return result.RowsAffected(), nil
 	}
 }
 
 // ExecuteQuery Execute native SQL query
-func (dbs *SQLiteDatabase) ExecuteQuery(source string, sql string, args ...any) ([]Json, error) {
+func (dbs *PostgresDatabase) ExecuteQuery(source string, sql string, args ...any) ([]Json, error) {
 
-	rows, err := dbs.db.Query(sql, args...)
+	rows, err := dbs.poolDb.Query(context.Background(), sql, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	result := make([]Json, 0)
 	for {
@@ -804,10 +930,7 @@ func (dbs *SQLiteDatabase) ExecuteQuery(source string, sql string, args ...any) 
 			break
 		}
 
-		cols, er := rows.ColumnTypes()
-		if er != nil {
-			continue
-		}
+		cols := rows.FieldDescriptions()
 
 		columnsData := make([]any, len(cols))
 		columnPointers := make([]any, len(cols))
@@ -815,6 +938,14 @@ func (dbs *SQLiteDatabase) ExecuteQuery(source string, sql string, args ...any) 
 			columnPointers[i] = &columnsData[i]
 		}
 
+		//values := make([]any, len(cols))
+		//for i, _ := range cols {
+		//	values[i] = new(any)
+		//}
+
+		//if err = rows.Scan(values...); err != nil {
+		//	return nil, err
+		//}
 		if err = rows.Scan(columnPointers...); err != nil {
 			return nil, err
 		}
@@ -822,7 +953,7 @@ func (dbs *SQLiteDatabase) ExecuteQuery(source string, sql string, args ...any) 
 		entry := Json{}
 		for i, col := range cols {
 			val := columnPointers[i].(*any)
-			entry[col.Name()] = *val
+			entry[col.Name] = *val
 		}
 		result = append(result, entry)
 	}
@@ -834,9 +965,9 @@ func (dbs *SQLiteDatabase) ExecuteQuery(source string, sql string, args ...any) 
 //
 // param: table - Table name to drop
 // return: error
-func (dbs *SQLiteDatabase) DropTable(table string) (err error) {
+func (dbs *PostgresDatabase) DropTable(table string) (err error) {
 	SQL := fmt.Sprintf(ddlDropTable, table)
-	if _, err = dbs.db.Exec(SQL); err != nil {
+	if _, err = dbs.poolDb.Exec(context.Background(), SQL); err != nil {
 		logger.Error("%s error: %s", SQL, err.Error())
 	}
 	return
@@ -846,9 +977,9 @@ func (dbs *SQLiteDatabase) DropTable(table string) (err error) {
 //
 // param: table - Table name to purge
 // return: error
-func (dbs *SQLiteDatabase) PurgeTable(table string) (err error) {
+func (dbs *PostgresDatabase) PurgeTable(table string) (err error) {
 	SQL := fmt.Sprintf(ddlPurgeTable, table)
-	if _, err = dbs.db.Exec(SQL); err != nil {
+	if _, err = dbs.poolDb.Exec(context.Background(), SQL); err != nil {
 		logger.Error("%s error: %s", SQL, err.Error())
 	}
 	return
@@ -868,7 +999,7 @@ func (dbs *SQLiteDatabase) PurgeTable(table string) (err error) {
 //
 // param: action - The action on the entity
 // param: entity - The changed entity
-func (dbs *SQLiteDatabase) publishChange(action EntityAction, entity Entity) {
+func (dbs *PostgresDatabase) publishChange(action EntityAction, entity Entity) {
 
 	if dbs.bus == nil || entity == nil {
 		return
@@ -901,31 +1032,31 @@ func (dbs *SQLiteDatabase) publishChange(action EntityAction, entity Entity) {
 // region Datastore  methods -------------------------------------------------------------------------------------------
 
 // IndexExists tests if index exists
-func (dbs *SQLiteDatabase) IndexExists(indexName string) (exists bool) {
+func (dbs *PostgresDatabase) IndexExists(indexName string) (exists bool) {
 	// TODO: Add implementation
 	return false
 }
 
 // CreateIndex creates an index (without mapping)
-func (dbs *SQLiteDatabase) CreateIndex(indexName string) (name string, err error) {
+func (dbs *PostgresDatabase) CreateIndex(indexName string) (name string, err error) {
 	// TODO: Add implementation
 	return indexName, fmt.Errorf("not implemented")
 }
 
 // CreateEntityIndex creates an index of entity and add entity field mapping
-func (dbs *SQLiteDatabase) CreateEntityIndex(factory EntityFactory, key string) (name string, err error) {
+func (dbs *PostgresDatabase) CreateEntityIndex(factory EntityFactory, key string) (name string, err error) {
 	// TODO: Add implementation
 	return key, fmt.Errorf("not implemented")
 }
 
 // ListIndices returns a list of all indices matching the pattern
-func (dbs *SQLiteDatabase) ListIndices(pattern string) (map[string]int, error) {
+func (dbs *PostgresDatabase) ListIndices(pattern string) (map[string]int, error) {
 	// TODO: Add implementation
 	return nil, fmt.Errorf("not implemented")
 }
 
 // DropIndex drops an index
-func (dbs *SQLiteDatabase) DropIndex(indexName string) (ack bool, err error) {
+func (dbs *PostgresDatabase) DropIndex(indexName string) (ack bool, err error) {
 	// TODO: Add implementation
 	return false, fmt.Errorf("not implemented")
 }

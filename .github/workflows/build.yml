@@ -38,6 +38,6 @@ jobs:
           prerelease: false
 
       - name: Update Go package repository
-        run: curl https://proxy.golang.org/github.com/go-yaaf/yaaf-common-sqlite/@v/v${{ env.major }}.${{ env.minor }}.${{ github.run_number }}.info
+        run: curl https://proxy.golang.org/github.com/go-yaaf/yaaf-common-postgresql/@v/v${{ env.major }}.${{ env.minor }}.${{ github.run_number }}.info
         env:
           GOPROXY: proxy.golang.org
