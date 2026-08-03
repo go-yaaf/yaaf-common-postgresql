@@ -1,14 +1,12 @@
-// Postgresql SQL query helper to construct SQL queries
+// SQLite SQL query helper to construct SQL queries
 //
 
-package postgresql
+package sqlitedb
 
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"reflect"
-	"regexp"
 	"strings"
 
 	"github.com/go-yaaf/yaaf-common/database"
@@ -39,8 +37,8 @@ func isSafeFieldName(name string) bool {
 
 // region Query helper Methods -----------------------------------------------------------------------------------------
 
-// Build postgres SQL statement with sql arguments based on the query data
-func (s *postgresDatabaseQuery) buildStatement(keys ...string) (SQL string, args []any) {
+// Build SQLite SQL statement with sql arguments based on the query data
+func (s *sqliteDatabaseQuery) buildStatement(keys ...string) (SQL string, args []any) {
 
 	args = make([]any, 0)
 	s.keys = make([]string, 0)
@@ -58,9 +56,9 @@ func (s *postgresDatabaseQuery) buildStatement(keys ...string) (SQL string, args
 	return
 }
 
-// Build postgres SQL count statement with sql arguments based on the query data
+// Build SQLite SQL count statement with sql arguments based on the query data
 // supported aggregations: count, sum, avg, min, max
-func (s *postgresDatabaseQuery) buildCountStatement(field, function string, keys ...string) (SQL string, args []any) {
+func (s *sqliteDatabaseQuery) buildCountStatement(field, function string, keys ...string) (SQL string, args []any) {
 
 	args = make([]any, 0)
 
@@ -72,14 +70,14 @@ func (s *postgresDatabaseQuery) buildCountStatement(field, function string, keys
 
 	aggr := "*"
 	if function != "count" {
-		aggr = fmt.Sprintf("(data->>'%s')::FLOAT", field)
+		aggr = fmt.Sprintf("CAST(data->>'%s' AS REAL)", field)
 	}
 	SQL = fmt.Sprintf(`SELECT %s(%s) as aggr FROM "%s" %s`, function, aggr, tblName, where)
 	return
 }
 
-// Build postgres SQL statement with sql arguments based on the query data
-func (s *postgresDatabaseQuery) buildIdStatement(keys ...string) (SQL string, args []any) {
+// Build SQLite SQL statement with sql arguments based on the query data
+func (s *sqliteDatabaseQuery) buildIdStatement(keys ...string) (SQL string, args []any) {
 
 	args = make([]any, 0)
 
@@ -95,8 +93,8 @@ func (s *postgresDatabaseQuery) buildIdStatement(keys ...string) (SQL string, ar
 	return
 }
 
-// Build postgres SQL statement with sql arguments based on the query data
-func (s *postgresDatabaseQuery) buildCriteria(startFrom int) (where string, args []any) {
+// Build SQLite SQL statement with sql arguments based on the query data
+func (s *sqliteDatabaseQuery) buildCriteria(startFrom int) (where string, args []any) {
 	parts := make([]string, 0, 0)
 	varIndex := 1
 	if startFrom > 0 {
@@ -153,7 +151,7 @@ func (s *postgresDatabaseQuery) buildCriteria(startFrom int) (where string, args
 }
 
 // Build order clause based on the query data
-func (s *postgresDatabaseQuery) buildOrder() string {
+func (s *sqliteDatabaseQuery) buildOrder() string {
 
 	l := len(s.ascOrders) + len(s.descOrders)
 	if l == 0 {
@@ -174,7 +172,7 @@ func (s *postgresDatabaseQuery) buildOrder() string {
 }
 
 // Build limit clause for pagination
-func (s *postgresDatabaseQuery) buildLimit() string {
+func (s *sqliteDatabaseQuery) buildLimit() string {
 	// Calculate limit and offset from page number and page size (limit)
 	var offset int
 	if s.limit > 0 {
@@ -191,7 +189,7 @@ func (s *postgresDatabaseQuery) buildLimit() string {
 }
 
 // Build query filter
-func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
+func (s *sqliteDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
 	// handle IN sub-query
 	if qf.GetOperator() == database.InSQ {
@@ -226,21 +224,21 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 		return s.buildFilterArrayLike(rawFieldName, qf, varIndex)
 	}
 
-	// Sanitize boolean values ( pgx-specific behaviour, expects to get it as string )
+	// Sanitize boolean values ( pgx-specific behavior, expects to get it as string )
 
 	switch qf.GetOperator() {
 	case database.Eq:
-		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), values
+		return fmt.Sprintf("(%s = ?%d)", fieldName, varIndex), values
 	case database.Neq:
-		return fmt.Sprintf("(%s != $%d)", fieldName, varIndex), values
+		return fmt.Sprintf("(%s != ?%d)", fieldName, varIndex), values
 	case database.Gt:
-		return fmt.Sprintf("(%s > $%d)", fieldName, varIndex), values
+		return fmt.Sprintf("(%s > ?%d)", fieldName, varIndex), values
 	case database.Gte:
-		return fmt.Sprintf("(%s >= $%d)", fieldName, varIndex), values
+		return fmt.Sprintf("(%s >= ?%d)", fieldName, varIndex), values
 	case database.Lt:
-		return fmt.Sprintf("(%s < $%d)", fieldName, varIndex), values
+		return fmt.Sprintf("(%s < ?%d)", fieldName, varIndex), values
 	case database.Lte:
-		return fmt.Sprintf("(%s <= $%d)", fieldName, varIndex), values
+		return fmt.Sprintf("(%s <= ?%d)", fieldName, varIndex), values
 	case database.Like:
 		return s.buildFilterLike(fieldName, qf, varIndex)
 	case database.NotLike:
@@ -250,40 +248,42 @@ func (s *postgresDatabaseQuery) buildFilter(qf database.QueryFilter, varIndex in
 	case database.NotIn:
 		return s.buildFilterNotIn(fieldName, qf, varIndex)
 	case database.Between:
-		return fmt.Sprintf("(%s BETWEEN $%d AND $%d)", fieldName, varIndex, varIndex+1), values
+		return fmt.Sprintf("(%s BETWEEN ?%d AND ?%d)", fieldName, varIndex, varIndex+1), values
 	case database.Contains:
+		// SQLite has no jsonb @> operator: assert every requested element is
+		// present in the field's JSON array.
 		if jsonArr, jErr := json.Marshal(values); jErr == nil {
-			return fmt.Sprintf("(%s @> $%d::jsonb)", fieldName, varIndex), []any{string(jsonArr)}
+			return fmt.Sprintf("(NOT EXISTS (SELECT 1 FROM json_each(?%d) _n WHERE _n.value NOT IN (SELECT value FROM json_each(%s))))", varIndex, fieldName), []any{string(jsonArr)}
 		}
 		return "", nil
 	case database.NotContains:
 		if jsonArr, jErr := json.Marshal(values); jErr == nil {
-			return fmt.Sprintf("(NOT %s @> $%d::jsonb)", fieldName, varIndex), []any{string(jsonArr)}
+			return fmt.Sprintf("(EXISTS (SELECT 1 FROM json_each(?%d) _n WHERE _n.value NOT IN (SELECT value FROM json_each(%s))))", varIndex, fieldName), []any{string(jsonArr)}
 		}
 		return "", nil
 	case database.Empty:
-		return fmt.Sprintf("((%s = '') IS NOT FALSE)", fieldName), nil
+		return fmt.Sprintf("(%s IS NULL OR %s = '')", fieldName, fieldName), nil
 	case database.True:
-		return fmt.Sprintf("((%s) IS TRUE)", fieldName), nil
+		return fmt.Sprintf("((%s) = 1)", fieldName), nil
 	case database.False:
-		return fmt.Sprintf("((%s) IS FALSE)", fieldName), nil
+		return fmt.Sprintf("((%s) = 0)", fieldName), nil
 	case database.WithFlag:
-		return fmt.Sprintf("(%s & $%d = $%d)", fieldName, varIndex, varIndex), values
+		return fmt.Sprintf("((%s & ?%d) = ?%d)", fieldName, varIndex, varIndex), values
 	case database.WithNoFlag:
-		return fmt.Sprintf("(%s & $%d <> $%d)", fieldName, varIndex, varIndex), values
+		return fmt.Sprintf("((%s & ?%d) <> ?%d)", fieldName, varIndex, varIndex), values
 	default:
-		return fmt.Sprintf("(%s = $%d)", fieldName, varIndex), values
+		return fmt.Sprintf("(%s = ?%d)", fieldName, varIndex), values
 	}
 }
 
-func (s *postgresDatabaseQuery) buildSubQueryFilter(qf database.QueryFilter, varIndex int, in bool) (sqlPart string, args []any) {
+func (s *sqliteDatabaseQuery) buildSubQueryFilter(qf database.QueryFilter, varIndex int, in bool) (sqlPart string, args []any) {
 
 	fieldName := qf.GetField()
 	if fieldName != "id" {
 		fieldName = s.getCastField(fieldName, qf.GetOperator())
 	}
 
-	subQuery, ok := qf.GetSubQuery().(*postgresDatabaseQuery)
+	subQuery, ok := qf.GetSubQuery().(*sqliteDatabaseQuery)
 	if !ok {
 		return "", nil
 	}
@@ -309,7 +309,7 @@ func (s *postgresDatabaseQuery) buildSubQueryFilter(qf database.QueryFilter, var
 	return fmt.Sprintf("(%s %s (%s))", fieldName, operator, SQL), subQueryArgs
 }
 
-func (s *postgresDatabaseQuery) buildFilterArrayLike(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
+func (s *sqliteDatabaseQuery) buildFilterArrayLike(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 	args = make([]any, 0)
 	parts := make([]string, 0)
 
@@ -334,7 +334,7 @@ func (s *postgresDatabaseQuery) buildFilterArrayLike(fieldName string, qf databa
 			exists = "NOT EXISTS"
 		}
 
-		parts = append(parts, fmt.Sprintf("(%s (SELECT 1 FROM jsonb_array_elements(data->'%s') AS elem WHERE lower(elem->>'%s') %s lower($%d)))", exists, arrayField, innerField, op, varIndex))
+		parts = append(parts, fmt.Sprintf("(%s (SELECT 1 FROM json_each(data->'%s') AS elem WHERE lower(elem.value->>'%s') %s lower(?%d)))", exists, arrayField, innerField, op, varIndex))
 		args = append(args, str)
 		varIndex++
 	}
@@ -343,14 +343,14 @@ func (s *postgresDatabaseQuery) buildFilterArrayLike(fieldName string, qf databa
 }
 
 // Build LIKE query filter
-func (s *postgresDatabaseQuery) buildFilterLike(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
+func (s *sqliteDatabaseQuery) buildFilterLike(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
 	args = make([]any, 0)
 	parts := make([]string, 0)
 
 	for _, value := range qf.GetValues() {
 		str := parseWildcards(fmt.Sprintf("%v", value))
-		parts = append(parts, fmt.Sprintf("(lower(%s) LIKE lower($%d))", fieldName, varIndex))
+		parts = append(parts, fmt.Sprintf("(lower(%s) LIKE lower(?%d))", fieldName, varIndex))
 		args = append(args, str)
 		varIndex++
 	}
@@ -359,14 +359,14 @@ func (s *postgresDatabaseQuery) buildFilterLike(fieldName string, qf database.Qu
 }
 
 // Build NOT LIKE query filter
-func (s *postgresDatabaseQuery) buildFilterNotLike(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
+func (s *sqliteDatabaseQuery) buildFilterNotLike(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
 	args = make([]any, 0)
 	parts := make([]string, 0)
 
 	for _, value := range qf.GetValues() {
 		str := parseWildcards(fmt.Sprintf("%v", value))
-		parts = append(parts, fmt.Sprintf("(lower(%s) NOT LIKE lower($%d))", fieldName, varIndex))
+		parts = append(parts, fmt.Sprintf("(lower(%s) NOT LIKE lower(?%d))", fieldName, varIndex))
 		args = append(args, str)
 		varIndex++
 	}
@@ -386,7 +386,7 @@ func parseWildcards(value string) string {
 }
 
 // Build IN query filter
-func (s *postgresDatabaseQuery) buildFilterIn(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
+func (s *sqliteDatabaseQuery) buildFilterIn(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
 	// If value is of type array, convert each item to an array
 	list := make([]any, 0)
@@ -402,30 +402,17 @@ func (s *postgresDatabaseQuery) buildFilterIn(fieldName string, qf database.Quer
 		}
 	}
 
-	// Special case for CIDR
-
-	if isValidCIDRPattern(list) {
-		str := fmt.Sprintf("%v", list[0])
-		if _, _, err := net.ParseCIDR(str); err != nil {
-			return fmt.Sprintf("((%s)::inet <<= '%s'::cidr)", fieldName, str), nil
-		}
+	// SQLite cannot bind a slice or use "= ANY(array)"; pass the values as a
+	// JSON array and expand it with json_each.
+	jsonList, err := json.Marshal(list)
+	if err != nil {
+		return "", nil
 	}
-	return fmt.Sprintf("(%s = ANY($%d))", fieldName, varIndex), []any{list}
-}
-
-// Check if the provided parameter is CIDR
-func isValidCIDRPattern(list []any) bool {
-	if len(list) != 1 {
-		return false
-	}
-	str := fmt.Sprintf("%v", list[0])
-	cidrRegex := `^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)/(3[0-2]|[12]?\d)$`
-	re := regexp.MustCompile(cidrRegex)
-	return re.MatchString(str)
+	return fmt.Sprintf("(%s IN (SELECT value FROM json_each(?%d)))", fieldName, varIndex), []any{string(jsonList)}
 }
 
 // Build NOT IN query filter
-func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
+func (s *sqliteDatabaseQuery) buildFilterNotIn(fieldName string, qf database.QueryFilter, varIndex int) (sqlPart string, args []any) {
 
 	// If value is of type array, convert each item to an array
 	list := make([]any, 0)
@@ -440,11 +427,15 @@ func (s *postgresDatabaseQuery) buildFilterNotIn(fieldName string, qf database.Q
 			list = append(list, val)
 		}
 	}
-	return fmt.Sprintf("NOT (%s = ANY ($%d))", fieldName, varIndex), []any{list}
+	jsonList, err := json.Marshal(list)
+	if err != nil {
+		return "", nil
+	}
+	return fmt.Sprintf("(%s NOT IN (SELECT value FROM json_each(?%d)))", fieldName, varIndex), []any{string(jsonList)}
 }
 
 // Build the cast
-func (s *postgresDatabaseQuery) getCastField(fieldName string, operator database.QueryOperator) (result string) {
+func (s *sqliteDatabaseQuery) getCastField(fieldName string, operator database.QueryOperator) (result string) {
 
 	// Defense-in-depth: a field name cannot be a bind parameter, so it is
 	// interpolated into the SQL. Never allow an unsafe identifier through -
@@ -463,15 +454,14 @@ func (s *postgresDatabaseQuery) getCastField(fieldName string, operator database
 		return fieldName
 	}
 
-	// Convert to Postgres Jsonb query
+	// Convert to SQLite Jsonb query
 	if operator == database.Contains {
 		return fmt.Sprintf("(data->'%s')", fieldName)
 	}
 
 	dataField := fmt.Sprintf("data->>'%s'", fieldName)
 	if strings.Contains(fieldName, ".") {
-		fields := strings.ReplaceAll(fieldName, ".", ",")
-		dataField = fmt.Sprintf("data#>>'{%s}'", fields)
+		dataField = fmt.Sprintf("data->>'$.%s'", fieldName)
 	}
 
 	fieldTypeAsString, ok := s.filedNameToType[fieldName]
@@ -479,34 +469,18 @@ func (s *postgresDatabaseQuery) getCastField(fieldName string, operator database
 		return dataField
 	}
 	switch fieldTypeAsString {
-	case "byte":
-		return fmt.Sprintf("(%s)::SMALLINT", dataField)
-	case "uint8":
-		return fmt.Sprintf("(%s)::SMALLINT", dataField)
-	case "int":
-		return fmt.Sprintf("(%s)::BIGINT", dataField)
-	case "uint":
-		return fmt.Sprintf("(%s)::BIGINT", dataField)
-	case "int32":
-		return fmt.Sprintf("(%s)::BIGINT", dataField)
-	case "int64":
-		return fmt.Sprintf("(%s)::BIGINT", dataField)
-	case "entity.Timestamp":
-		return fmt.Sprintf("(%s)::BIGINT", dataField)
-	case "float32":
-		return fmt.Sprintf("(%s)::FLOAT", dataField)
-	case "float64":
-		return fmt.Sprintf("(%s)::FLOAT", dataField)
-	case "bool":
-		return fmt.Sprintf("(%s)::BOOLEAN", dataField)
+	case "byte", "uint8", "int", "uint", "int32", "int64", "entity.Timestamp", "bool":
+		return fmt.Sprintf("CAST(%s AS INTEGER)", dataField)
+	case "float32", "float64":
+		return fmt.Sprintf("CAST(%s AS REAL)", dataField)
 	default:
-		return fmt.Sprintf("%s", dataField)
+		return dataField
 	}
 }
 
 // endregion
 
-func (s *postgresDatabaseQuery) convertAnyArray(value any) (result []any) {
+func (s *sqliteDatabaseQuery) convertAnyArray(value any) (result []any) {
 
 	switch v := value.(type) {
 	case []any:
@@ -618,34 +592,4 @@ func extractFields(fieldsMap map[string]string, t reflect.Type, prefix string) {
 			continue
 		}
 	}
-}
-
-// DEPRECATED - see the new implementation: entityFieldsToTypesMap using recursive
-func entityFieldsToTypesMapOld(ef entity.EntityFactory) map[string]string {
-
-	v := ef()
-
-	fieldsMap := map[string]string{
-		"createdon": "int64",
-		"updatedon": "int64",
-		"id":        "string",
-	}
-
-	val := reflect.ValueOf(v)
-
-	// We're only interested in structs
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-
-	if val.Kind() != reflect.Struct {
-		return nil
-	}
-
-	typ := val.Type()
-	for i := 0; i < val.NumField(); i++ {
-		field := typ.Field(i)
-		fieldsMap[strings.ToLower(field.Name)] = field.Type.String()
-	}
-	return fieldsMap
 }

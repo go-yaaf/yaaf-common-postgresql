@@ -39,7 +39,7 @@ This library is built around the [pgx](https://github.com/jackc/pgx) driver (`gi
 To add the library to your project, run the following command:
 
 ```bash
-go get -v -t github.com/go-yaaf/yaaf-common-postgresql
+go get -v -t github.com/go-yaaf/yaaf-common-sqlitedb
 ```
 
 ### Usage
@@ -61,8 +61,8 @@ import (
 )
 
 func main() {
-	// Connection string format: postgresql://user:password@host:port/database_name
-	uri := "postgresql://user:password@localhost:5432/test_db"
+	// Connection string format: sqlitedb://user:password@host:port/database_name
+	uri := "sqlitedb://user:password@localhost:5432/test_db"
 	db, err := postgresql.NewPostgresDatabase(uri)
 	if err != nil {
 		panic(err)
@@ -96,8 +96,8 @@ func main() {
 		panic(err)
 	}
 	
-	// Connection string format: postgresql://user:password@host:port/database_name
-	uri := "postgresql://user:password@localhost:5432/test_db"
+	// Connection string format: sqlitedb://user:password@host:port/database_name
+	uri := "sqlitedb://user:password@localhost:5432/test_db"
 	db, err := postgresql.NewPostgresDatabaseWithMessageBus(uri, messageBus)
 	if err != nil {
 		panic(err)
