@@ -1,9 +1,9 @@
 # GO-YAAF Postgres DB Middleware
 ![Project status](https://img.shields.io/badge/version-1.2-green.svg)
-[![Build](https://github.com/go-yaaf/yaaf-common-redis/actions/workflows/build.yml/badge.svg)](https://github.com/go-yaaf/yaaf-common-redis/actions/workflows/build.yml)
-[![Coverage Status](https://coveralls.io/repos/go-yaaf/yaaf-common-redis/badge.svg?branch=main&service=github)](https://coveralls.io/github/go-yaaf/yaaf-common-redis?branch=main)
-[![Go Report Card](https://goreportcard.com/badge/github.com/go-yaaf/yaaf-common-redis)](https://goreportcard.com/report/github.com/go-yaaf/yaaf-common-redis)
-[![GoDoc](https://godoc.org/github.com/go-yaaf/yaaf-common-redis?status.svg)](https://pkg.go.dev/github.com/go-yaaf/yaaf-common-redis)
+[![Build](https://github.com/go-yaaf/yaaf-common-postgresql/actions/workflows/build.yml/badge.svg)](https://github.com/go-yaaf/yaaf-common-postgresql/actions/workflows/build.yml)
+[![Coverage Status](https://coveralls.io/repos/go-yaaf/yaaf-common-postgresql/badge.svg?branch=main&service=github)](https://coveralls.io/github/go-yaaf/yaaf-common-postgresql?branch=main)
+[![Go Report Card](https://goreportcard.com/badge/github.com/go-yaaf/yaaf-common-postgresql)](https://goreportcard.com/report/github.com/go-yaaf/yaaf-common-postgresql)
+[![GoDoc](https://godoc.org/github.com/go-yaaf/yaaf-common-postgresql?status.svg)](https://pkg.go.dev/github.com/go-yaaf/yaaf-common-postgresql)
 ![License](https://img.shields.io/dub/l/vibe-d.svg)
 
 ## Overview
